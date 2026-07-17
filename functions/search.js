@@ -6,6 +6,32 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
+  let globalPosterUrl = '';
+
+  // 1. KROK: Zkusíme vytáhnout oficiální plakát z Free IMDb API
+  try {
+    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
+    const imdbResponse = await fetch(imdbApiUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    if (imdbResponse.ok) {
+      const imdbData = await imdbResponse.json();
+      
+      // Projdeme výsledky hledání z API a zkusíme najít validní obrázek (image)
+      if (imdbData && imdbData.description && imdbData.description.length > 0) {
+        // Vezmeme hned první relevantní film, který má u sebe odkaz na plakát
+        const firstMatch = imdbData.description.find(item => item["#IMG_POSTER"]);
+        if (firstMatch) {
+          globalPosterUrl = firstMatch["#IMG_POSTER"];
+        }
+      }
+    }
+  } catch (imdbError) {
+    console.log("IMDb API selhalo nebo vrátilo chybu:", imdbError.message);
+  }
+
+  // 2. KROK: Klasické vyhledání videí na Přehraj.to
   const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   
   try {
@@ -59,7 +85,8 @@ export async function onRequest(context) {
           title: title,
           size: size,
           duration: duration,
-          thumb: backupThumb // Jako základ dáme náhled z Přehraj.to
+          // Pokud máme skvělý velký plakát z IMDb, použijeme ho. Jinak dáme malý náhled z Přehraj.to
+          thumb: globalPosterUrl || backupThumb
         });
       }
     }
