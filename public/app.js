@@ -3,13 +3,13 @@ async function search() {
   if (!query) return;
 
   const resultsContainer = document.getElementById('results');
-  resultsContainer.innerHTML = '<div class="loader">Vyhledávám...</div>';
+  resultsContainer.innerHTML = '<div class="loader">Vyhledávám videa a plakáty...</div>';
 
   document.getElementById('playerContainer').style.display = 'none';
 
   let globalPosterUrl = '';
 
-  // 1. KROK: Vytáhneme plakát z IMDb (který nám prokazatelně funguje!)
+  // 1. KROK: Otestované a funkční IMDb API pro plakát
   try {
     const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
     const imdbResponse = await fetch(imdbApiUrl);
@@ -24,17 +24,11 @@ async function search() {
       }
     }
   } catch (imdbError) {
-    console.log("IMDb API selhalo, ale pokračujeme dál:", imdbError.message);
+    console.log("IMDb API momentálně nedostupné, jedeme dál:", imdbError.message);
   }
 
-  // 2. KROK: Načtení dat z Přehraj.to přes AllOrigins proxy
+  // 2. KROK: Vyhledávání na Přehraj.to přes AllOrigins proxy
   const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-  
-  try {
-    // 2. KROK: Stažení vyhledávání z Přehraj.to přes AllOrigins CORS Proxy
-  // Přidáno koncové lomítko, které Přehraj.to někdy vyžaduje pro správné směrování
-  const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}/`;
   const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
   
   try {
@@ -42,27 +36,25 @@ async function search() {
     if (!response.ok) throw new Error("CORS Proxy neodpovídá");
     
     const proxyData = await response.json();
-    
-    // Extrémně bezpečná kontrola obsahu - AllOrigins může vrátit string i objekt
-    let html = '';
-    if (proxyData && proxyData.contents) {
-      html = proxyData.contents;
-    } else if (typeof proxyData === 'string') {
-      html = proxyData;
-    }
+    const html = proxyData.contents;
     
     if (!html || html.trim() === "") {
-      throw new Error("Proxy vrátila prázdný obsah.");
+      resultsContainer.innerHTML = '<div class="loader">Proxy vrátila prázdnou stránku.</div>';
+      return;
     }
 
     const results = [];
-    // Upravený regulární výraz, který je méně náchylný na změny mezer v HTML kódu Přehraj.to
-    const videoBlockRegex = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-    const titleRegex = /<h3[^>]*>([\s\S]*?)<\/h3>/;
+    
+    // Návrat k původním, bezpečným a přesným regulárním výrazům z Přehraj.to
+    const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const titleRegex = /<h3[^>]+class="[^"]*video__title[^"]*"[^>]*>([\s\S]*?)<\/h3>/;
     const sizeRegex = /<div[^>]+class="[^"]*video__tag--size[^"]*"[^>]*>([\s\S]*?)<\/div>/;
     const durationRegex = /<div[^>]+class="[^"]*video__tag--time[^"]*"[^>]*>([\s\S]*?)<\/div>/;
     const imageRegex = /<img[^>]+(?:src|data-src)="([^"]+)"/;
-    
+
+    let match;
+    const seenLinks = new Set();
+
     while ((match = videoBlockRegex.exec(html)) !== null) {
       const link = match[1];
       const innerHtml = match[2];
@@ -95,11 +87,11 @@ async function search() {
     }
 
     if (results.length === 0) {
-      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky na Přehraj.to.</div>';
+      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky.</div>';
       return;
     }
 
-    // 3. KROK: Vykreslení výsledků do mřížky
+    // 3. KROK: Vykreslení mřížky s kartami
     resultsContainer.style.display = "flex";
     resultsContainer.style.flexWrap = "wrap";
     resultsContainer.style.gap = "20px";
@@ -122,18 +114,7 @@ async function search() {
     }).join('');
 
   } catch (error) {
-    // Zachráníme situaci: Proxy pro videa selhala, ale ukážeme aspoň ten nalezený plakát z IMDb jako info!
-    if (globalPosterUrl) {
-      resultsContainer.innerHTML = `
-        <div style="text-align: center; color: white; max-width: 300px;">
-          <p style="color: var(--accent); font-weight: bold;">Videa z Přehraj.to se nepodařilo načíst (CORS limit), ale film jsme našli:</p>
-          <img src="${globalPosterUrl}" style="width: 200px; height: 280px; object-fit: cover; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-          <h3 style="margin-top: 10px;">${query}</h3>
-        </div>
-      `;
-    } else {
-      resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Došlo k chybě sítě. Zkuste hledání opakovat za chvíli.</div>';
-    }
-    console.error("Chyba vyhledávání:", error);
+    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Chyba sítě. Zkuste hledání opakovat.</div>';
+    console.error("Detaily chyby:", error);
   }
 }
