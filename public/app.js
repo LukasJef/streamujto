@@ -4,12 +4,28 @@ const resultsDiv = document.getElementById('results');
 const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
 
+// Adresa tvého záložního obrázku (můžeš změnit za vlastní URL)
+const BACKUP_POSTER_URL = 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=300&auto=format&fit=crop';
+
 // Spuštění vyhledávání při stisku Enteru
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         search();
     }
 });
+
+// Extrémně rychlá vestavěná "AI" filtrace na hovadiny
+function jeToValidniFilm(title) {
+    const lowerTitle = title.toLowerCase();
+    // Seznam zakázaných slov, které okamžitě vyřadí herní videa a balast
+    const zakazanaSlova = [
+        'gameplay', 'letsplay', 'let\'s play', 'walkthrough', 'tutorial', 
+        'navod', 'návod', 'soundtrack', 'ost', 'trailer', 'teaser', 'game'
+    ];
+    
+    // Pokud název obsahuje jakékoliv zakázané slovo, vrátí false (vyřadit)
+    return !zakazanaSlova.some(slovo => lowerTitle.includes(slovo));
+}
 
 // 1. Funkce pro vyhledávání filmů
 async function search() {
@@ -21,7 +37,6 @@ async function search() {
     videoPlayer.pause();
 
     try {
-        // Zavoláme tvůj backend
         const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
         const data = await response.json();
 
@@ -31,18 +46,26 @@ async function search() {
         }
 
         if (!data.results || data.results.length === 0) {
-            resultsContainer.innerHTML = '<div class="no-results">Nebyly nalezeny žádné výsledky.</div>';
+            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné výsledky.</div>';
             return;
         }
 
-        // Ořízneme výsledky natvrdo jen na prvních 10 prvků
-        const top10Results = data.results.slice(0, 10);
+        // Filtrování pomocí naší lokální funkce
+        const prefiltrovaneVysledky = data.results.filter(item => jeToValidniFilm(item.title));
+
+        // Ořízneme výsledky natvrdo na 12 prvků pro symetrickou mřížku 4x3
+        const top12Results = prefiltrovaneVysledky.slice(0, 12);
+
+        if (top12Results.length === 0) {
+            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné filmové výsledky.</div>';
+            return;
+        }
 
         // Vykreslíme karty s dočasnými náhledy
-        renderResults(top10Results);
+        renderResults(top12Results);
 
         // Spustíme vyhledávání reálných plakátů pro každou kartu zvlášť
-        fetchPostersOneByOne(top10Results);
+        fetchPostersOneByOne(top12Results);
 
     } catch (err) {
         resultsDiv.innerHTML = '<div class="error">Chyba sítě nebo serveru.</div>';
@@ -50,7 +73,7 @@ async function search() {
     }
 }
 
-// 2. Vykreslení základních 10 karet (zatím s backup plakátem)
+// 2. Vykreslení základních 12 karet
 function renderResults(results) {
     resultsDiv.innerHTML = '';
     
@@ -61,9 +84,6 @@ function renderResults(results) {
     resultsDiv.style.padding = "20px 0";
     
     results.forEach((item, index) => {
-        // Výchozí vzhled karty používá tvůj univerzální "Coming Soon / Bez Plakátu" styl
-        const defaultImg = 'https://via.placeholder.com/200x280/1f1f1f/ffffff?text=Hledám+Plakát...';
-
         const card = document.createElement('div');
         card.style.width = "180px";
         card.style.backgroundColor = "var(--card-bg)";
@@ -75,10 +95,12 @@ function renderResults(results) {
         card.style.justifyContent = "space-between";
         card.style.boxShadow = "0 4px 6px rgba(0,0,0,0.2)";
 
-        // Každý obrázek má unikátní id="movie-poster-XYZ", abychom ho uměli na pozadí vyměnit
+        // onerror parametr zajistí, že pokud url obrázku selže, skočí tam automaticky náš čistý BACKUP_POSTER_URL
         card.innerHTML = `
             <div>
-                <img id="movie-poster-${index}" src="${defaultImg}" style="width: 100%; height: 240px; object-fit: cover; border-radius: 4px; background-color: #000; display: block; margin-bottom: 10px;" referrerpolicy="no-referrer">
+                <img id="movie-poster-${index}" src="${BACKUP_POSTER_URL}" 
+                     onerror="this.onerror=null; this.src='${BACKUP_POSTER_URL}';"
+                     style="width: 100%; height: 240px; object-fit: cover; border-radius: 4px; background-color: #000; display: block; margin-bottom: 10px;" referrerpolicy="no-referrer">
                 <h3 style="font-size: 14px; margin: 0 0 6px 0; color: var(--text); line-height: 1.3; max-height: 36px; overflow: hidden; text-align: left;">${item.title}</h3>
                 <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
             </div>
@@ -93,11 +115,11 @@ async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         
-        // Vyčistíme název od nejčastějšího balastu, aby mělo IMDb přesnější shodu
+        // Vyčistíme název od technického balastu
         const cleanTitle = item.title
-            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4)/gi, '')
-            .replace(/[()\[\]\-–—]/g, ' ') // Odstraní závorky a pomlčky
-            .replace(/\s+/g, ' ')            // Smaže zdvojené mezery
+            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam)/gi, '')
+            .replace(/[()\[\]\-–—]/g, ' ') 
+            .replace(/\s+/g, ' ')            
             .trim();
 
         try {
@@ -108,14 +130,12 @@ async function fetchPostersOneByOne(results) {
                 const imdbData = await imdbResponse.json();
                 
                 if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    // Najdeme v datech z IMDb první validní plakát
                     const match = imdbData.description.find(element => element["#IMG_POSTER"]);
                     const imgElement = document.getElementById(`movie-poster-${i}`);
                     
-                    if (match && imgElement) {
-                        // Blesková výměna placeholderu za reálný plakát přímo před očima
+                    if (match && imgElement && match["#IMG_POSTER"]) {
                         imgElement.src = match["#IMG_POSTER"];
-                        continue; // Úspěšně vyměněno, skáčeme na další film
+                        continue; 
                     }
                 }
             }
@@ -123,11 +143,10 @@ async function fetchPostersOneByOne(results) {
             console.log(`Nepodařilo se načíst plakát pro: ${cleanTitle}`, err.message);
         }
 
-        // ZÁLOHA: Pokud IMDb nic nenašlo (nebo šlo o gameplay / hovadinu), dáme tam tvůj nativní přebal
+        // Pokud selže vyhledávání, ujistíme se, že tam svítí pěkný backup plakát a ne prázdno
         const imgElement = document.getElementById(`movie-poster-${i}`);
-        if (imgElement) {
-            // Sem si klidně hoď přímou url tvého "Coming Soon" obrázku z projektu
-            imgElement.src = 'https://via.placeholder.com/200x280/1f1f1f/aaaaaa?text=Bez+Plakátu';
+        if (imgElement && imgElement.src !== BACKUP_POSTER_URL) {
+            imgElement.src = BACKUP_POSTER_URL;
         }
     }
 }
