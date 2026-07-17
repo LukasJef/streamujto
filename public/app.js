@@ -32,24 +32,37 @@ async function search() {
   const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
   
   try {
+    // 2. KROK: Stažení vyhledávání z Přehraj.to přes AllOrigins CORS Proxy
+  // Přidáno koncové lomítko, které Přehraj.to někdy vyžaduje pro správné směrování
+  const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}/`;
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+  
+  try {
     const response = await fetch(proxyUrl);
-    if (!response.ok) throw new Error("Proxy neodpovídá");
+    if (!response.ok) throw new Error("CORS Proxy neodpovídá");
     
     const proxyData = await response.json();
-    const html = proxyData.contents;
     
-    if (!html) throw new Error("Žádný obsah z proxy");
+    // Extrémně bezpečná kontrola obsahu - AllOrigins může vrátit string i objekt
+    let html = '';
+    if (proxyData && proxyData.contents) {
+      html = proxyData.contents;
+    } else if (typeof proxyData === 'string') {
+      html = proxyData;
+    }
+    
+    if (!html || html.trim() === "") {
+      throw new Error("Proxy vrátila prázdný obsah.");
+    }
 
     const results = [];
-    const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-    const titleRegex = /<h3[^>]+class="[^"]*video__title[^"]*"[^>]*>([\s\S]*?)<\/h3>/;
+    // Upravený regulární výraz, který je méně náchylný na změny mezer v HTML kódu Přehraj.to
+    const videoBlockRegex = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const titleRegex = /<h3[^>]*>([\s\S]*?)<\/h3>/;
     const sizeRegex = /<div[^>]+class="[^"]*video__tag--size[^"]*"[^>]*>([\s\S]*?)<\/div>/;
     const durationRegex = /<div[^>]+class="[^"]*video__tag--time[^"]*"[^>]*>([\s\S]*?)<\/div>/;
     const imageRegex = /<img[^>]+(?:src|data-src)="([^"]+)"/;
-
-    let match;
-    const seenLinks = new Set();
-
+    
     while ((match = videoBlockRegex.exec(html)) !== null) {
       const link = match[1];
       const innerHtml = match[2];
