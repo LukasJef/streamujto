@@ -147,78 +147,117 @@ function calculateTextSimilarity(str1, str2) {
 }
 
 // 3. Hledání plakátů na pozadí s chytrým filtrováním shod
+// Pomocná funkce pro vyhledávání na Wikipedii (cs nebo en)
+async function searchWikipedia(query, lang) {
+    try {
+        // Použijeme Wikipedia API pro vyhledávání a získání náhledu obrázku (pageimages)
+        const url = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=3&prop=pageimages|description&piprop=original&pilimit=3`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        
+        const data = await response.json();
+        if (!data.query || !data.query.pages) return null;
+
+        // Projdeme výsledky a hledáme stránku, která má obrázek a ideálně filmový popis
+        for (const pageId in data.query.pages) {
+            const page = data.query.pages[pageId];
+            const description = (page.description || '').toLowerCase();
+            const title = (page.title || '').toLowerCase();
+            
+            // Chceme se ujistit, že stránka souvisí s filmem, seriálem, televizí nebo komedií
+            const jeFilm = description.includes('film') || description.includes('seriál') || 
+                           description.includes('movie') || description.includes('series') || 
+                           title.includes('film') || title.includes('seriál');
+
+            if (page.original && page.original.source && (jeFilm || description === '')) {
+                console.log(`[Wiki ${lang.toUpperCase()}] Nalezen plakát pro: ${query} -> ${page.title}`);
+                return page.original.source; // Vrátí URL obrázku z Wikipedie
+            }
+        }
+    } catch (e) {
+        console.error(`Chyba při dotazu na Wiki (${lang}):`, e);
+    }
+    return null;
+}
+
+// Hlavní funkce pro postupné načítání plakátů s víceúrovňovým zálohováním
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         const imgElement = document.getElementById(`movie-poster-${i}`);
         if (!imgElement) continue;
 
-        // 1. Extrakce roku (např. 2025)
+        // 1. Extrakce roku z názvu souboru
         const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
         const movieYear = yearMatch ? yearMatch[0] : '';
 
-        // 2. Vyčištění balastu z Přehraj.to názvu
+        // 2. Vyčištění balastu z názvu
         let cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama|sportovni)/gi, '')
             .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
             .trim();
 
-        // Vytvoříme čistý dotaz pro IMDb vyhledávač
         let searchWords = cleanTitle.split(/\s+/).filter(word => word !== movieYear && word.length > 1);
-        const baseQuery = searchWords.slice(0, 3).join(' '); // max 3 hlavní slova
-        const finalQuery = movieYear ? `${baseQuery} ${movieYear}` : baseQuery;
+        const baseQuery = searchWords.slice(0, 3).join(' '); // Max 3 klíčová slova
+        
+        let wikiQuery = baseQuery;
+        if (movieYear) wikiQuery += ` film ${movieYear}`; // Specifikujeme pro Wiki, že chceme film
 
-        try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery)}`;
-            const imdbResponse = await fetch(imdbApiUrl);
+        console.log(`Hledám plakát pro: "${wikiQuery}"`);
 
-            if (imdbResponse.ok) {
-                const imdbData = await imdbResponse.json();
-                
-                if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    let bestMatch = null;
-                    let highestScore = -1;
+        // --- ÚROVEŇ 1: Česká Wikipedie ---
+        let posterUrl = await searchWikipedia(wikiQuery, 'cs');
 
-                    // Projdeme všechny nalezené výsledky z IMDb
-                    for (let element of imdbData.description) {
-                        if (!element["#IMG_POSTER"]) continue;
-
-                        const imdbTitle = element["#TITLE"] || '';
-                        const imdbYear = element["#YEAR"];
-
-                        // Kontrola roku: Pokud máme rok z Přehraj.to, musí sedět (s tolerancí +/- 1 rok pro jistotu)
-                        if (movieYear && imdbYear) {
-                            if (Math.abs(parseInt(imdbYear) - parseInt(movieYear)) > 1) {
-                                continue; // Rok nesedí, ignorujeme tento výsledek
-                            }
-                        }
-
-                        // Spočítáme textovou shodu mezi vyčištěným názvem a názvem na IMDb
-                        const currentScore = calculateTextSimilarity(cleanTitle, imdbTitle);
-
-                        // Hledáme výsledek s nejvyšší textovou shodou
-                        if (currentScore > highestScore) {
-                            highestScore = currentScore;
-                            bestMatch = element;
-                        }
-                    }
-                    
-                    // Nastavíme práh spolehlivosti: pokud je shoda větší než 20 %
-                    // (To spolehlivě vyřadí "Liverpool", který má shodu skoro 0 %)
-                    if (bestMatch && highestScore > 0.2) {
-                        imgElement.src = bestMatch["#IMG_POSTER"];
-                        updateFavoritePoster(item.link, bestMatch["#IMG_POSTER"]);
-                        continue; 
-                    }
-                }
-            }
-        } catch (err) {
-            console.log(`Chyba vyhledávání plakátu pro: ${finalQuery}`, err.message);
+        // --- ÚROVEŇ 2: Anglická Wikipedie ---
+        if (!posterUrl) {
+            posterUrl = await searchWikipedia(wikiQuery, 'en');
         }
 
-        // Pokud film neprošel sítem, necháme tam záložní žlutý plakát
-        if (imgElement.src !== BACKUP_POSTER_URL) {
-            imgElement.src = BACKUP_POSTER_URL;
+        // --- ÚROVEŇ 3: Fallback na IMDb API (s brutálním filtrem proti Liverpoolu) ---
+        if (!posterUrl) {
+            try {
+                const imdbQuery = movieYear ? `${baseQuery} ${movieYear}` : baseQuery;
+                const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(imdbQuery)}`;
+                const imdbResponse = await fetch(imdbApiUrl);
+
+                if (imdbResponse.ok) {
+                    const imdbData = await imdbResponse.json();
+                    if (imdbData?.description?.length > 0) {
+                        for (let element of imdbData.description) {
+                            if (!element["#IMG_POSTER"]) continue;
+
+                            const imdbTitle = (element["#TITLE"] || '').toLowerCase();
+                            
+                            // Brutální filtr: Pokud hledáme "Dream Team" a v názvu IMDb je "Liverpool", okamžitě přeskočit!
+                            if (imdbTitle.includes('liverpool') && !baseQuery.toLowerCase().includes('liverpool')) {
+                                continue; 
+                            }
+
+                            // Ověříme, že název na IMDb obsahuje aspoň jedno hlavní slovo z našeho hledání
+                            const obsahujeSlovo = searchWords.some(word => imdbTitle.includes(word.toLowerCase()));
+                            
+                            if (obsahujeSlovo) {
+                                posterUrl = element["#IMG_POSTER"];
+                                console.log(`[IMDb Fallback] Nalezen plakát pro: ${imdbQuery}`);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.log(`[IMDb Fallback] Chyba:`, err.message);
+            }
+        }
+
+        // --- ÚROVEŇ 4: Úplný fallback (Unsplash / Tvá žlutá klapka) ---
+        if (posterUrl) {
+            imgElement.src = posterUrl;
+            updateFavoritePoster(item.link, posterUrl);
+        } else {
+            console.log(`[Fallback] Žádný plakát nenalezen, aplikuji Unsplash zálohu.`);
+            if (imgElement.src !== BACKUP_POSTER_URL) {
+                imgElement.src = BACKUP_POSTER_URL;
+            }
         }
     }
 }
