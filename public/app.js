@@ -147,114 +147,139 @@ function calculateTextSimilarity(str1, str2) {
 }
 
 // 3. Hledání plakátů na pozadí s chytrým filtrováním shod
-// Pomocná funkce pro vyhledávání na Wikipedii (cs nebo en)
-async function searchWikipedia(query, lang) {
+// Pomocná funkce, která získá z Wikipedie detailní informace o filmu (původní název, rok, zemi)
+async function getFilmDetailsFromWiki(rawQuery) {
     try {
-        // Použijeme Wikipedia API pro vyhledávání a získání náhledu obrázku (pageimages)
-        const url = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=3&prop=pageimages|description&piprop=original&pilimit=3`;
-        const response = await fetch(url);
-        if (!response.ok) return null;
+        // Vyhledáme článek na české Wikipedii
+        const searchUrl = `https://cs.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(rawQuery + " film")}&format=json&origin=*`;
+        const searchResponse = await fetch(searchUrl);
+        if (!searchResponse.ok) return null;
         
-        const data = await response.json();
-        if (!data.query || !data.query.pages) return null;
+        const searchData = await searchResponse.json();
+        if (!searchData.query?.search?.length) return null;
 
-        // Projdeme výsledky a hledáme stránku, která má obrázek a ideálně filmový popis
-        for (const pageId in data.query.pages) {
-            const page = data.query.pages[pageId];
-            const description = (page.description || '').toLowerCase();
-            const title = (page.title || '').toLowerCase();
-            
-            // Chceme se ujistit, že stránka souvisí s filmem, seriálem, televizí nebo komedií
-            const jeFilm = description.includes('film') || description.includes('seriál') || 
-                           description.includes('movie') || description.includes('series') || 
-                           title.includes('film') || title.includes('seriál');
+        const topResult = searchData.query.search[0];
+        
+        // Ověříme, že to v textu nebo názvu zmiňuje film/seriál
+        const text = topResult.snippet.toLowerCase();
+        const title = topResult.title.toLowerCase();
+        if (!text.includes('film') && !text.includes('seriál') && !title.includes('film') && !title.includes('seriál')) {
+            return null;
+        }
 
-            if (page.original && page.original.source && (jeFilm || description === '')) {
-                console.log(`[Wiki ${lang.toUpperCase()}] Nalezen plakát pro: ${query} -> ${page.title}`);
-                return page.original.source; // Vrátí URL obrázku z Wikipedie
+        // Dotážeme se na obsah dané stránky, abychom získali její "překlady" (mezijazykové odkazy) a podrobnosti
+        const pageUrl = `https://cs.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(topResult.title)}&prop=langlinks&lllimit=500&format=json&origin=*`;
+        const pageResponse = await fetch(pageUrl);
+        if (!pageResponse.ok) return null;
+
+        const pageData = await pageResponse.json();
+        const pages = pageData.query?.pages;
+        if (!pages) return null;
+
+        const pageId = Object.keys(pages)[0];
+        const langlinks = pages[pageId].langlinks;
+
+        // Najdeme anglický ekvivalent stránky (tam bývá oficiální celosvětový název)
+        let englishTitle = null;
+        if (langlinks) {
+            const enLink = langlinks.find(l => l.lang === 'en');
+            if (enLink) {
+                // Odstraníme případné závorky jako "(film)" z anglického názvu
+                englishTitle = enLink['*'].replace(/\s*\(.*\)/g, '').trim();
             }
         }
+
+        // Vyčistíme český název od závorek pro případ, že anglický neexistuje
+        let czechTitle = topResult.title.replace(/\s*\(.*\)/g, '').trim();
+
+        // Vytáhneme z textu snippetu rok (často tam bývá např. "z roku 2025")
+        const yearMatch = topResult.snippet.match(/\b(19\d\d|20\d\d)\b/);
+        const wikiYear = yearMatch ? yearMatch[0] : null;
+
+        return {
+            enTitle: englishTitle,
+            csTitle: czechTitle,
+            year: wikiYear
+        };
+
     } catch (e) {
-        console.error(`Chyba při dotazu na Wiki (${lang}):`, e);
+        console.error("Chyba při parsování dat z Wikipedie:", e);
     }
     return null;
 }
 
-// Hlavní funkce pro postupné načítání plakátů s víceúrovňovým zálohováním
+// Hlavní funkce pro postupné načítání plakátů
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         const imgElement = document.getElementById(`movie-poster-${i}`);
         if (!imgElement) continue;
 
-        // 1. Extrakce roku z názvu souboru
-        const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
-        const movieYear = yearMatch ? yearMatch[0] : '';
+        // Extrakce roku z původního názvu souboru na Přehraj.to jako základ
+        const fileYearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
+        const fileYear = fileYearMatch ? fileYearMatch[0] : '';
 
-        // 2. Vyčištění balastu z názvu
+        // Základní očištění textu z Přehraj.to
         let cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama|sportovni)/gi, '')
             .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
             .trim();
 
-        let searchWords = cleanTitle.split(/\s+/).filter(word => word !== movieYear && word.length > 1);
-        const baseQuery = searchWords.slice(0, 3).join(' '); // Max 3 klíčová slova
+        let searchWords = cleanTitle.split(/\s+/).filter(word => word !== fileYear && word.length > 1);
+        const baseQuery = searchWords.slice(0, 3).join(' ');
+
+        // --- KROK 1: Spuštění Wikipedia Detektiva ---
+        console.log(`[Wiki] Analyzuji film: "${baseQuery}"`);
+        const wikiData = await getFilmDetailsFromWiki(baseQuery);
+
+        let imdbQuery = "";
         
-        let wikiQuery = baseQuery;
-        if (movieYear) wikiQuery += ` film ${movieYear}`; // Specifikujeme pro Wiki, že chceme film
-
-        console.log(`Hledám plakát pro: "${wikiQuery}"`);
-
-        // --- ÚROVEŇ 1: Česká Wikipedie ---
-        let posterUrl = await searchWikipedia(wikiQuery, 'cs');
-
-        // --- ÚROVEŇ 2: Anglická Wikipedie ---
-        if (!posterUrl) {
-            posterUrl = await searchWikipedia(wikiQuery, 'en');
+        if (wikiData) {
+            // Upřednostníme anglický (originální) název z Wiki, protože IMDb na něj slyší nejlépe
+            const vybranyNazev = wikiData.enTitle || wikiData.csTitle;
+            const vybranyRok = wikiData.year || fileYear;
+            
+            imdbQuery = vybranyRok ? `${vybranyNazev} ${vybranyRok}` : vybranyNazev;
+            console.log(`[Wiki Výstup] Data získána úspěšně -> Sestavený dotaz pro IMDb: "${imdbQuery}"`);
+        } else {
+            // Fallback: Pokud Wiki o filmu nic neví, poskládáme dotaz postaru
+            imdbQuery = fileYear ? `${baseQuery} ${fileYear}` : baseQuery;
+            console.log(`[Wiki Selhání] Film nenalezen -> Používám nouzový dotaz: "${imdbQuery}"`);
         }
 
-        // --- ÚROVEŇ 3: Fallback na IMDb API (s brutálním filtrem proti Liverpoolu) ---
-        if (!posterUrl) {
-            try {
-                const imdbQuery = movieYear ? `${baseQuery} ${movieYear}` : baseQuery;
-                const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(imdbQuery)}`;
-                const imdbResponse = await fetch(imdbApiUrl);
+        // --- KROK 2: Vyhledání na IMDb ---
+        let posterUrl = null;
+        try {
+            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(imdbQuery)}`;
+            const imdbResponse = await fetch(imdbApiUrl);
 
-                if (imdbResponse.ok) {
-                    const imdbData = await imdbResponse.json();
-                    if (imdbData?.description?.length > 0) {
-                        for (let element of imdbData.description) {
-                            if (!element["#IMG_POSTER"]) continue;
+            if (imdbResponse.ok) {
+                const imdbData = await imdbResponse.json();
+                if (imdbData?.description?.length > 0) {
+                    for (let element of imdbData.description) {
+                        if (!element["#IMG_POSTER"]) continue;
 
-                            const imdbTitle = (element["#TITLE"] || '').toLowerCase();
-                            
-                            // Brutální filtr: Pokud hledáme "Dream Team" a v názvu IMDb je "Liverpool", okamžitě přeskočit!
-                            if (imdbTitle.includes('liverpool') && !baseQuery.toLowerCase().includes('liverpool')) {
-                                continue; 
-                            }
-
-                            // Ověříme, že název na IMDb obsahuje aspoň jedno hlavní slovo z našeho hledání
-                            const obsahujeSlovo = searchWords.some(word => imdbTitle.includes(word.toLowerCase()));
-                            
-                            if (obsahujeSlovo) {
-                                posterUrl = element["#IMG_POSTER"];
-                                console.log(`[IMDb Fallback] Nalezen plakát pro: ${imdbQuery}`);
-                                break;
-                            }
+                        const titleLower = (element["#TITLE"] || '').toLowerCase();
+                        
+                        // Pojistka proti Liverpoolu (pokud ho vyloženě nehledáme)
+                        if (titleLower.includes('liverpool') && !imdbQuery.toLowerCase().includes('liverpool')) {
+                            continue;
                         }
+
+                        posterUrl = element["#IMG_POSTER"];
+                        break;
                     }
                 }
-            } catch (err) {
-                console.log(`[IMDb Fallback] Chyba:`, err.message);
             }
+        } catch (err) {
+            console.log(`Chyba IMDb API:`, err.message);
         }
 
-        // --- ÚROVEŇ 4: Úplný fallback (Unsplash / Tvá žlutá klapka) ---
+        // --- KROK 3: Vykreslení plakátu nebo Unsplash ---
         if (posterUrl) {
             imgElement.src = posterUrl;
             updateFavoritePoster(item.link, posterUrl);
         } else {
-            console.log(`[Fallback] Žádný plakát nenalezen, aplikuji Unsplash zálohu.`);
             if (imgElement.src !== BACKUP_POSTER_URL) {
                 imgElement.src = BACKUP_POSTER_URL;
             }
