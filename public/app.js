@@ -12,34 +12,73 @@ searchInput.addEventListener('keypress', (e) => {
 });
 
 // 1. Funkce pro vyhledávání filmů
-async function search() {
-    const query = searchInput.value.trim();
-    if (!query) return;
+async function searchMovies() {
+  const query = document.getElementById('searchInput').value.trim();
+  if (!query) return;
 
-    resultsDiv.innerHTML = '<div class="loader">Hledám filmy na Přehraj.to...</div>';
-    playerContainer.style.display = 'none'; // Skryjeme přehrávač při novém vyhledávání
-    videoPlayer.pause();
+  const resultsContainer = document.getElementById('results');
+  resultsContainer.innerHTML = '<p>Vyhledávám...</p>';
 
-    try {
-        const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
-        const data = await response.json();
+  try {
+    // 1. Načteme výsledky z našeho Workeru (z Přehraj.to)
+    const response = await fetch(`/functions/search?q=${encodeURIComponent(query)}`);
+    const data = await response.json();
 
-        if (data.error) {
-            resultsDiv.innerHTML = `<div class="error">Chyba: ${data.error}</div>`;
-            return;
-        }
-
-        if (!data.results || data.results.length === 0) {
-            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné výsledky.</div>';
-            return;
-        }
-
-        renderResults(data.results);
-
-    } catch (err) {
-        resultsDiv.innerHTML = '<div class="error">Chyba sítě nebo serveru.</div>';
-        console.error(err);
+    if (!data.results || data.results.length === 0) {
+      resultsContainer.innerHTML = '<p>Nebyly nalezeny žádné výsledky.</p>';
+      return;
     }
+
+    // Vykreslíme základy s obrázkem z Přehraj.to
+    resultsContainer.innerHTML = data.results.map((item, index) => `
+      <div class="video-card" style="display: inline-block; width: 200px; margin: 10px; vertical-align: top; background: #1a1a1a; padding: 10px; border-radius: 8px;">
+        <img id="poster-${index}" src="${item.thumb}" class="video-thumb" style="width: 100%; height: 280px; object-fit: cover; border-radius: 6px; margin-bottom: 8px;">
+        <h3 style="font-size: 14px; height: 40px; overflow: hidden; margin: 5px 0; color: #fff;">${item.title}</h3>
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 10px;">${item.size} | ${item.duration}</p>
+        <button onclick="window.open('${item.link}', '_blank')" style="width: 100%; padding: 8px; background: #e50914; color: white; border: none; border-radius: 4px; cursor: pointer;">Spustit</button>
+      </div>
+    `).join('');
+
+    // 2. KROK: Přímo z prohlížeče se zeptáme na ten správný plakát z Bombuj
+    try {
+      const formData = new URLSearchParams();
+      formData.append('queryString', query);
+
+      const bombujRes = await fetch('https://www.bombuj.si/4154q37rpc4dsvbp.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: formData.toString()
+      });
+
+      if (bombujRes.ok) {
+        const bombujHtml = await bombujRes.text();
+        // Vytáhneme URL plakátu z HTML odpovědi
+        const imgRegex = /<img[^>]+src="([^"]+)"/;
+        const match = bombujHtml.match(imgRegex);
+
+        if (match && match[1]) {
+          let realPosterUrl = match[1];
+          if (realPosterUrl.startsWith('//')) realPosterUrl = 'https:' + realPosterUrl;
+
+          // Pokud jsme našli perfektní plakát z Bombuj, přepíšeme jím VŠECHNY náhledy karet na webu
+          data.results.forEach((_, index) => {
+            const imgElement = document.getElementById(`poster-${index}`);
+            if (imgElement) {
+              imgElement.src = realPosterUrl;
+            }
+          });
+        }
+      }
+    } catch (bombujError) {
+      console.log("Přímý dotaz na Bombuj neprošel kvůli CORS, nevadí, zůstaly náhledy z Přehraj.to.", bombujError);
+    }
+
+  } catch (error) {
+    resultsContainer.innerHTML = '<p>Nastala chyba při vyhledávání.</p>';
+    console.error(error);
+  }
 }
 
 // 2. Vykreslení výsledků do HTML
