@@ -13,19 +13,47 @@ export async function onRequest(context) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'cs,en-US;q=0.7,en;q=0.3'
+        'Accept-Language': 'cs,en-US;q=0.7,en;q=0.3',
+        'Referer': 'https://prehraj.to/'
       }
     });
 
-    const html = await response.text();
+    if (!response.ok) {
+      throw new Error(`Přehraj.to vrátilo status ${response.status}`);
+    }
 
-    // DOČASNÝ DEBUG: Vrátíme kousek HTML kódu, abychom viděli, co nám Přehraj.to skutečně poslalo
-    return new Response(JSON.stringify({
-      status: response.status,
-      htmlSnippet: html.substring(0, 1000), // Prvních 1000 znaků stránky
-      includesSearch: html.includes('hledej') || html.includes('Matrix')
-    }), {
-      headers: { 'Content-Type': 'application/json' }
+    const html = await response.text();
+    const results = [];
+
+    // Nový, flexibilnější regex pro vyhledání odkazů na videa a jejich názvů.
+    // Přehraj.to často používá formát <a href="/video/..." class="...">Název</a>
+    // Tento regex hledá jakékoliv odkazy, které v href obsahují "/video/"
+    const regex = /<a\s+[^>]*href="(\/video\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    let match;
+    const seenLinks = new Set(); // Abychom neměli duplicity
+
+    while ((match = regex.exec(html)) !== null) {
+      const link = match[1];
+      let title = match[2];
+
+      // Vyčistíme název od HTML tagů (např. pokud je uvnitř <span>, <img> nebo silný text)
+      title = title.replace(/<[^>]*>/g, '').trim();
+
+      // Odfiltrujeme prázdné názvy a duplicitní odkazy
+      if (title && !seenLinks.has(link)) {
+        seenLinks.add(link);
+        results.push({
+          link: link,
+          title: title
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({ results }), {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*' // Pro jistotu povolit CORS
+      }
     });
 
   } catch (err) {
