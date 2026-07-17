@@ -17,28 +17,43 @@ async function searchMovies() {
   if (!query) return;
 
   const resultsContainer = document.getElementById('results');
-  resultsContainer.innerHTML = '<p>Vyhledávám...</p>';
+  resultsContainer.innerHTML = '<p style="color: white;">Vyhledávám...</p>';
 
   try {
     const response = await fetch(`/functions/search?q=${encodeURIComponent(query)}`);
     const data = await response.json();
 
     if (!data.results || data.results.length === 0) {
-      resultsContainer.innerHTML = '<p>Nebyly nalezeny žádné výsledky.</p>';
+      resultsContainer.innerHTML = '<p style="color: white;">Nebyly nalezeny žádné výsledky.</p>';
       return;
     }
 
-    resultsContainer.innerHTML = data.results.map(item => `
-      <div class="video-card" style="display: inline-block; width: 200px; margin: 10px; vertical-align: top; background: #1a1a1a; padding: 10px; border-radius: 8px;">
-        <img src="${item.thumb}" class="video-thumb" style="width: 100%; height: 280px; object-fit: cover; border-radius: 6px; margin-bottom: 8px;">
-        <h3 style="font-size: 14px; height: 40px; overflow: hidden; margin: 5px 0; color: #fff;">${item.title}</h3>
-        <p style="font-size: 12px; color: #aaa; margin-bottom: 10px;">${item.size} | ${item.duration}</p>
-        <button onclick="window.open('${item.link}', '_blank')" style="width: 100%; padding: 8px; background: #e50914; color: white; border: none; border-radius: 4px; cursor: pointer;">Spustit</button>
-      </div>
-    `).join('');
+    // Vyčistíme kontejner a nastavíme mu flexbox, aby to vypadalo jako netflix/grid
+    resultsContainer.style.display = "flex";
+    resultsContainer.style.flexWrap = "wrap";
+    resultsContainer.style.gap = "20px";
+    resultsContainer.style.justifyContent = "center";
+    resultsContainer.style.padding = "20px";
+
+    resultsContainer.innerHTML = data.results.map(item => {
+      // KONTROLA: Pokud API nevrátilo žádný obrázek, dáme tam aspoň šedý obdélník s nápisem
+      const imgSrc = item.thumb ? item.thumb : 'https://via.placeholder.com/200x280/1a1a1a/ffffff?text=Bez+Obrazku';
+
+      return `
+        <div style="width: 200px; background: #1a1a1a; padding: 12px; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #333;">
+          <div>
+            <!-- Obrázek s vynucenými rozměry -->
+            <img src="${imgSrc}" style="width: 100%; height: 260px; object-fit: cover; border-radius: 4px; background: #000; display: block; margin-bottom: 8px;">
+            <h3 style="font-size: 14px; font-family: sans-serif; margin: 5px 0; color: #fff; line-height: 1.3; max-height: 36px; overflow: hidden;">${item.title}</h3>
+            <p style="font-size: 11px; font-family: sans-serif; color: #aaa; margin: 4px 0 12px 0;">${item.size || 'Neznámá velikost'}</p>
+          </div>
+          <button onclick="window.open('${item.link}', '_blank')" style="width: 100%; padding: 10px; background: #e50914; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-family: sans-serif;">Spustit</button>
+        </div>
+      `;
+    }).join('');
 
   } catch (error) {
-    resultsContainer.innerHTML = '<p>Nastala chyba při vyhledávání.</p>';
+    resultsContainer.innerHTML = '<p style="color: red;">Nastala chyba při vyhledávání.</p>';
     console.error(error);
   }
 }
