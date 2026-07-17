@@ -81,7 +81,7 @@ async function search() {
     }
 }
 
-// 2. Vykreslení základních 12 karet
+// 2. Vykreslení základních 12 karet (BEZPEČNÁ VERZE)
 function renderResults(results) {
     resultsDiv.innerHTML = '';
     
@@ -106,9 +106,10 @@ function renderResults(results) {
 
         const isFav = isFavorite(item.link);
 
+        // Bezpečně předpřipravíme HTML kostru (bez rizikových onclick textů)
         card.innerHTML = `
             <!-- Tlačítko pro přidání do oblíbených přímo na plakátu -->
-            <button onclick="toggleFavorite('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src)" 
+            <button class="fav-toggle-btn" 
                     style="position: absolute; top: 18px; right: 18px; background: rgba(0,0,0,0.7); border: none; color: ${isFav ? '#ffca28' : '#fff'}; font-size: 18px; padding: 5px 8px; border-radius: 4px; cursor: pointer; z-index: 10;">
                 ${isFav ? '★' : '☆'}
             </button>
@@ -121,10 +122,29 @@ function renderResults(results) {
                 <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
             </div>
             <div>
-                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;" onclick="playVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src)">Spustit</button>
-                <button class="download-btn" style="width: 100%; padding: 6px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="downloadVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}')">Stáhnout film</button>
+                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;">Spustit</button>
+                <button class="download-btn" style="width: 100%; padding: 6px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;">Stáhnout film</button>
             </div>
         `;
+
+        // NEJLEPŠÍ FIX: Navážeme eventy přímo přes JS, takže žádné závorky ani uvozovky v názvu kód už NIKDY nerozbijí!
+        const favBtn = card.querySelector('.fav-toggle-btn');
+        const playBtn = card.querySelector('.play-btn');
+        const downloadBtn = card.querySelector('.download-btn');
+        const imgEl = card.querySelector(`#movie-poster-${index}`);
+
+        favBtn.addEventListener('click', () => {
+            toggleFavorite(item.link, item.title, imgEl.src);
+        });
+
+        playBtn.addEventListener('click', () => {
+            playVideo(item.link, item.title, imgEl.src);
+        });
+
+        downloadBtn.addEventListener('click', (event) => {
+            downloadVideo(item.link, item.title);
+        });
+
         resultsDiv.appendChild(card);
     });
 }
