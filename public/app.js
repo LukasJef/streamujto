@@ -129,19 +129,26 @@ function renderResults(results) {
     });
 }
 
-// 3. Hledání plakátů na pozadí
+// 3. Hledání plakátů na pozadí (Vylepšené čištění na první 4 slova)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         
-        const cleanTitle = item.title
-            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam)/gi, '')
-            .replace(/[()\[\]\-–—]/g, ' ') 
-            .replace(/\s+/g, ' ')            
-            .trim();
+        // 1. Odstranění známého balastu (kvalita, dabing, atd.)
+        let cleanTitle = item.title
+            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama)/gi, '');
+
+        // 2. Nahrazení všech speciálních znaků, teček, čárek, podtržítek a závorek mezerou
+        cleanTitle = cleanTitle.replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ');
+
+        // 3. Ořezání přebytečných mezer a rozbití na jednotlivá slova
+        const words = cleanTitle.trim().split(/\s+/);
+
+        // 4. Vezmeme pouze první 4 slova a spojíme je zpět do vyhledávacího řetězce
+        const finalQuery = words.slice(0, 4).join(' ');
 
         try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanTitle)}`;
+            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery)}`;
             const imdbResponse = await fetch(imdbApiUrl);
 
             if (imdbResponse.ok) {
@@ -153,14 +160,13 @@ async function fetchPostersOneByOne(results) {
                     
                     if (match && imgElement && match["#IMG_POSTER"]) {
                         imgElement.src = match["#IMG_POSTER"];
-                        // Pokud mezitím uživatel přidal film do oblíbených z menu, aktualizujeme tam fotku
                         updateFavoritePoster(item.link, match["#IMG_POSTER"]);
                         continue; 
                     }
                 }
             }
         } catch (err) {
-            console.log(`Nepodařilo se načíst plakát pro: ${cleanTitle}`, err.message);
+            console.log(`Nepodařilo se načíst plakát pro: ${finalQuery}`, err.message);
         }
 
         const imgElement = document.getElementById(`movie-poster-${i}`);
