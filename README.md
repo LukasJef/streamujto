@@ -1,4 +1,4 @@
-# STREAMUJ.TO
+# [STREAMUJ.TO](https://streamuj.atrixx.org/)
 ## O čem je?
 Využívá existující stránky, obchází reklamy, předplatná a přehrává surový soubor videa, přičemž používá přebaly z veřejných databází.
 ## Nějaké funkce:
