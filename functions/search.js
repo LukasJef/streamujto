@@ -12,48 +12,29 @@ export async function onRequest(context) {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'cs,en-US;q=0.7,en;q=0.3',
         'Referer': 'https://prehraj.to/'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Přehraj.to vrátilo status ${response.status}`);
-    }
-
     const html = await response.text();
-    const results = [];
+    const allLinks = [];
 
-    // Nový, flexibilnější regex pro vyhledání odkazů na videa a jejich názvů.
-    // Přehraj.to často používá formát <a href="/video/..." class="...">Název</a>
-    // Tento regex hledá jakékoliv odkazy, které v href obsahují "/video/"
-    const regex = /<a\s+[^>]*href="(\/video\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    // Zachytíme VŠECHNY href atributy na stránce
+    const regex = /href="([^"]+)"/g;
     let match;
-    const seenLinks = new Set(); // Abychom neměli duplicity
-
     while ((match = regex.exec(html)) !== null) {
-      const link = match[1];
-      let title = match[2];
-
-      // Vyčistíme název od HTML tagů (např. pokud je uvnitř <span>, <img> nebo silný text)
-      title = title.replace(/<[^>]*>/g, '').trim();
-
-      // Odfiltrujeme prázdné názvy a duplicitní odkazy
-      if (title && !seenLinks.has(link)) {
-        seenLinks.add(link);
-        results.push({
-          link: link,
-          title: title
-        });
+      // Chceme vidět hlavně ty, co smrdí videem nebo vyhledáváním
+      if (match[1].includes('video') || match[1].includes('hledej') || match[1].length > 5) {
+        allLinks.push(match[1]);
       }
     }
 
-    return new Response(JSON.stringify({ results }), {
-      headers: { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*' // Pro jistotu povolit CORS
-      }
+    return new Response(JSON.stringify({
+      message: "Testujeme strukturu odkazů",
+      totalLinksFound: allLinks.length,
+      sampleLinks: allLinks.slice(0, 40) // Ukážeme prvních 40 odkazů
+    }), {
+      headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (err) {
