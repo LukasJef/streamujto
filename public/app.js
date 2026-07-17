@@ -4,7 +4,7 @@ const resultsDiv = document.getElementById('results');
 const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
 
-// Adresa tvého záložního obrázku (můžeš změnit za vlastní URL)
+// Adresa tvého záložního obrázku
 const BACKUP_POSTER_URL = 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=300&auto=format&fit=crop';
 
 // Spuštění vyhledávání při stisku Enteru
@@ -17,13 +17,10 @@ searchInput.addEventListener('keypress', (e) => {
 // Extrémně rychlá vestavěná "AI" filtrace na hovadiny
 function jeToValidniFilm(title) {
     const lowerTitle = title.toLowerCase();
-    // Seznam zakázaných slov, které okamžitě vyřadí herní videa a balast
     const zakazanaSlova = [
         'gameplay', 'letsplay', 'let\'s play', 'walkthrough', 'tutorial', 
         'navod', 'návod', 'soundtrack', 'ost', 'trailer', 'teaser', 'game'
     ];
-    
-    // Pokud název obsahuje jakékoliv zakázané slovo, vrátí false (vyřadit)
     return !zakazanaSlova.some(slovo => lowerTitle.includes(slovo));
 }
 
@@ -32,7 +29,7 @@ async function search() {
     const query = searchInput.value.trim();
     if (!query) return;
 
-    resultsDiv.innerHTML = '<div class="loader">Hledám filmy na Přehraj.to...</div>';
+    resultsDiv.innerHTML = '<div class="loader">Hledám filmy...</div>';
     playerContainer.style.display = 'none';
     videoPlayer.pause();
 
@@ -50,10 +47,7 @@ async function search() {
             return;
         }
 
-        // Filtrování pomocí naší lokální funkce
         const prefiltrovaneVysledky = data.results.filter(item => jeToValidniFilm(item.title));
-
-        // Ořízneme výsledky natvrdo na 12 prvků pro symetrickou mřížku 4x3
         const top12Results = prefiltrovaneVysledky.slice(0, 12);
 
         if (top12Results.length === 0) {
@@ -61,10 +55,7 @@ async function search() {
             return;
         }
 
-        // Vykreslíme karty s dočasnými náhledy
         renderResults(top12Results);
-
-        // Spustíme vyhledávání reálných plakátů pro každou kartu zvlášť
         fetchPostersOneByOne(top12Results);
 
     } catch (err) {
@@ -73,7 +64,7 @@ async function search() {
     }
 }
 
-// 2. Vykreslení základních 12 karet
+// 2. Vykreslení základních 12 karet (přidáno tlačítko Stáhnout)
 function renderResults(results) {
     resultsDiv.innerHTML = '';
     
@@ -95,7 +86,7 @@ function renderResults(results) {
         card.style.justifyContent = "space-between";
         card.style.boxShadow = "0 4px 6px rgba(0,0,0,0.2)";
 
-        // onerror parametr zajistí, že pokud url obrázku selže, skočí tam automaticky náš čistý BACKUP_POSTER_URL
+        // Do HTML pod tlačítko spustit vkládáme tlačítko pro stažení
         card.innerHTML = `
             <div>
                 <img id="movie-poster-${index}" src="${BACKUP_POSTER_URL}" 
@@ -104,18 +95,20 @@ function renderResults(results) {
                 <h3 style="font-size: 14px; margin: 0 0 6px 0; color: var(--text); line-height: 1.3; max-height: 36px; overflow: hidden; text-align: left;">${item.title}</h3>
                 <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
             </div>
-            <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin: 0;" onclick="playVideo('${item.link}')">Spustit</button>
+            <div>
+                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;" onclick="playVideo('${item.link}')">Spustit</button>
+                <button class="download-btn" style="width: 100%; padding: 6px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="downloadVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}')">Stáhnout film</button>
+            </div>
         `;
         resultsDiv.appendChild(card);
     });
 }
 
-// 3. Hledání plakátů na pozadí: Výsledek po výsledku
+// 3. Hledání plakátů na pozadí
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         
-        // Vyčistíme název od technického balastu
         const cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam)/gi, '')
             .replace(/[()\[\]\-–—]/g, ' ') 
@@ -143,7 +136,6 @@ async function fetchPostersOneByOne(results) {
             console.log(`Nepodařilo se načíst plakát pro: ${cleanTitle}`, err.message);
         }
 
-        // Pokud selže vyhledávání, ujistíme se, že tam svítí pěkný backup plakát a ne prázdno
         const imgElement = document.getElementById(`movie-poster-${i}`);
         if (imgElement && imgElement.src !== BACKUP_POSTER_URL) {
             imgElement.src = BACKUP_POSTER_URL;
@@ -203,4 +195,45 @@ async function playVideo(videoUrl) {
         alert('Chyba při získávání video streamu.');
         console.error(err);
     }
+}
+
+// 5. NOVÁ FUNKCE: Přímé stáhnutí souboru do PC / Mobilu
+async function downloadVideo(videoUrl, title) {
+    // Vytvoříme dočasný loading text přímo na kliknutém tlačítku
+    const btn = event.target;
+    const puvodniText = btn.innerText;
+    btn.innerText = 'Získávám odkaz...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
+        const data = await response.json();
+
+        if (data.error || !data.sources || !data.sources[0] || !data.sources[0].file) {
+            alert('Nepodařilo se získat odkaz ke stažení.');
+            btn.innerText = puvodniText;
+            btn.disabled = false;
+            return;
+        }
+
+        const directLink = data.sources[0].file;
+
+        // Vytvoříme skrytý stahovací element a simulujeme kliknutí
+        const a = document.createElement('a');
+        a.href = directLink;
+        // Pokusíme se vnutit hezký název souboru
+        a.download = `${title}.mp4`;
+        a.target = '_blank'; // Kdyby download selhal, otevře se v nové záložce, kde stačí dát pravé kliknout -> Uložit video jako
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+    } catch (err) {
+        console.error(err);
+        alert('Chyba při komunikaci se serverem.');
+    }
+
+    // Vrátíme tlačítko do původního stavu
+    btn.innerText = puvodniText;
+    btn.disabled = false;
 }
