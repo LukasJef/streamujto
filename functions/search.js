@@ -6,36 +6,44 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  // 1. KROK: Stáhneme jeden hlavní plakát z IMDb API s maskovaným User-Agentem
   let globalPosterUrl = '';
+
+  // 1. KROK: Dotaz na tajný našeptávač Bombuj.si přes POST
   try {
-    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
+    const bombujSuggestUrl = `https://www.bombuj.si/4154q37rpc4dsvbp.php`;
     
-    const imdbRes = await fetch(imdbApiUrl, {
+    const bombujRes = await fetch(bombujSuggestUrl, {
+      method: 'POST',
       headers: {
-        // KLÍČOVÁ ZMĚNA: Musíme předstírat, že jsme normální prohlížeč, jinak nám API nic nevrátí
+        'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-      }
+        'Referer': 'https://www.bombuj.si/'
+      },
+      body: `queryString=${encodeURIComponent(query)}`
     });
-    
-    if (imdbRes.ok) {
-      const imdbData = await imdbRes.json();
+
+    if (bombujRes.ok) {
+      const suggestHtml = await bombujRes.text();
       
-      // Podle dokumentace jsou výsledky schované v poli "description"
-      if (imdbData && imdbData.description && imdbData.description.length > 0) {
-        // Vezmeme hned první (nejrelevantnější) výsledek
-        const topMatch = imdbData.description[0];
-        if (topMatch && topMatch["#IMG_POSTER"]) {
-          globalPosterUrl = topMatch["#IMG_POSTER"];
+      // Vytáhneme src prvního nalezeného obrázku z našeptávače
+      const imgRegex = /<img[^>]+src="([^"]+)"/;
+      const matchImg = suggestHtml.match(imgRegex);
+      
+      if (matchImg && matchImg[1]) {
+        globalPosterUrl = matchImg[1];
+        // Oprava relativní URL (např. //www.bombuj.si/... -> https://www.bombuj.si/...)
+        if (globalPosterUrl.startsWith('//')) {
+          globalPosterUrl = `https:${globalPosterUrl}`;
+        } else if (globalPosterUrl.startsWith('/')) {
+          globalPosterUrl = `https://www.bombuj.si${globalPosterUrl}`;
         }
       }
     }
   } catch (e) {
-    console.log("IMDb API selhalo nebo neodpovědělo:", e.message);
+    console.log("Bombuj.si našeptávač selhal:", e.message);
   }
 
-  // 2. KROK: Vyhledáme videa na Přehraj.to (zůstává stejné)
+  // 2. KROK: Vyhledání videí na Přehraj.to
   const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   
   try {
@@ -89,7 +97,7 @@ export async function onRequest(context) {
           title: title,
           size: size,
           duration: duration,
-          // Pokud máme poster z IMDb, použijeme ho. Jinak dáme náhled z Přehraj.to
+          // Pokud máme přesný plakát z Bombuj, vyhraje. Jinak dáme screen z Přehraj.to
           thumb: globalPosterUrl || backupThumb
         });
       }
