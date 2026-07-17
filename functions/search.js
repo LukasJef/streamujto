@@ -6,44 +6,6 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  let globalPosterUrl = '';
-
-  // 1. KROK: Dotaz na tajný našeptávač Bombuj.si přes POST
-  try {
-    const bombujSuggestUrl = `https://www.bombuj.si/4154q37rpc4dsvbp.php`;
-    
-    const bombujRes = await fetch(bombujSuggestUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.bombuj.si/'
-      },
-      body: `queryString=${encodeURIComponent(query)}`
-    });
-
-    if (bombujRes.ok) {
-      const suggestHtml = await bombujRes.text();
-      
-      // Vytáhneme src prvního nalezeného obrázku z našeptávače
-      const imgRegex = /<img[^>]+src="([^"]+)"/;
-      const matchImg = suggestHtml.match(imgRegex);
-      
-      if (matchImg && matchImg[1]) {
-        globalPosterUrl = matchImg[1];
-        // Oprava relativní URL (např. //www.bombuj.si/... -> https://www.bombuj.si/...)
-        if (globalPosterUrl.startsWith('//')) {
-          globalPosterUrl = `https:${globalPosterUrl}`;
-        } else if (globalPosterUrl.startsWith('/')) {
-          globalPosterUrl = `https://www.bombuj.si${globalPosterUrl}`;
-        }
-      }
-    }
-  } catch (e) {
-    console.log("Bombuj.si našeptávač selhal:", e.message);
-  }
-
-  // 2. KROK: Vyhledání videí na Přehraj.to
   const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   
   try {
@@ -97,8 +59,7 @@ export async function onRequest(context) {
           title: title,
           size: size,
           duration: duration,
-          // Pokud máme přesný plakát z Bombuj, vyhraje. Jinak dáme screen z Přehraj.to
-          thumb: globalPosterUrl || backupThumb
+          thumb: backupThumb // Jako základ dáme náhled z Přehraj.to
         });
       }
     }
