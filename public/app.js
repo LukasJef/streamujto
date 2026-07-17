@@ -1,0 +1,126 @@
+// Pomocné prvky z DOMu
+const searchInput = document.getElementById('searchQuery');
+const resultsDiv = document.getElementById('results');
+const playerContainer = document.getElementById('playerContainer');
+const videoPlayer = document.getElementById('videoPlayer');
+
+// Spuštění vyhledávání při stisku Enteru
+searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        search();
+    }
+});
+
+// 1. Funkce pro vyhledávání filmů
+async function search() {
+    const query = searchInput.value.trim();
+    if (!query) return;
+
+    resultsDiv.innerHTML = '<div class="loader">Hledám filmy na Přehraj.to...</div>';
+    playerContainer.style.display = 'none'; // Skryjeme přehrávač při novém vyhledávání
+    videoPlayer.pause();
+
+    try {
+        const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+
+        if (data.error) {
+            resultsDiv.innerHTML = `<div class="error">Chyba: ${data.error}</div>`;
+            return;
+        }
+
+        if (!data.results || data.results.length === 0) {
+            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné výsledky.</div>';
+            return;
+        }
+
+        renderResults(data.results);
+
+    } catch (err) {
+        resultsDiv.innerHTML = '<div class="error">Chyba sítě nebo serveru.</div>';
+        console.error(err);
+    }
+}
+
+// 2. Vykreslení výsledků do HTML
+function renderResults(results) {
+    resultsDiv.innerHTML = '';
+    
+    results.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'video-card';
+        card.innerHTML = `
+            <div class="video-info">
+                <h3>${item.title}</h3>
+            </div>
+            <button class="play-btn" onclick="playVideo('${item.link}')">Spustit</button>
+        `;
+        resultsDiv.appendChild(card);
+    });
+}
+
+// 3. Načtení konkrétního videa do přehrávače
+async function playVideo(videoUrl) {
+    // Scrollneme nahoru k přehrávači
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    resultsDiv.insertAdjacentHTML('afterbegin', '<div class="loading-overlay">Načítám video stream...</div>');
+
+    try {
+        // Zavoláme náš get-video endpoint
+        const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
+        const data = await response.json();
+
+        // Odstraníme loading overlay
+        const overlay = document.querySelector('.loading-overlay');
+        if (overlay) overlay.remove();
+
+        if (data.error) {
+            alert(`Nepodařilo se přehrát: ${data.error}`);
+            return;
+        }
+
+        // Najdeme nejlepší kvalitu (často první v poli 'sources')
+        const videoSource = data.sources && data.sources[0];
+
+        if (!videoSource || !videoSource.file) {
+            alert('Nebyl nalezen žádný přehrávatelný soubor.');
+            return;
+        }
+
+        // Zobrazíme kontejner s přehrávačem
+        playerContainer.style.display = 'block';
+
+        // Nastavíme zdroj videa
+        videoPlayer.src = videoSource.file;
+
+        // Pokud jsou k dispozici titulky, přidáme je
+        // Nejdříve smažeme staré titulkové stopy
+        const existingTracks = videoPlayer.querySelectorAll('track');
+        existingTracks.forEach(track => track.remove());
+
+        if (data.tracks && data.tracks.length > 0) {
+            data.tracks.forEach(trackData => {
+                const track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = trackData.label || 'Čeština';
+                track.srclang = trackData.srclang || 'cs';
+                track.src = trackData.file;
+                track.default = trackData.default || false;
+                videoPlayer.appendChild(track);
+            });
+        }
+
+        // Spustíme přehrávání
+        videoPlayer.load();
+        videoPlayer.play().catch(e => {
+            console.log("Automatické přehrávání bylo zablokováno prohlížečem. Klikněte na Play ručně.");
+        });
+
+    } catch (err) {
+        const overlay = document.querySelector('.loading-overlay');
+        if (overlay) overlay.remove();
+        alert('Chyba při získávání video streamu.');
+        console.error(err);
+    }
+}

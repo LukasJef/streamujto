@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamuj.to (Pages Edition)</title>
+    <style>
+        :root {
+            --bg-color: #141414;
+            --card-bg: #1f1f1f;
+            --accent: #e50914; /* Netflix červená */
+            --text: #ffffff;
+            --text-dim: #aaaaaa;
+        }
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+        }
+        h1 {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 20px;
+        }
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        input {
+            flex-grow: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: var(--card-bg);
+            color: white;
+            font-size: 16px;
+        }
+        button {
+            padding: 12px 24px;
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #b80710;
+        }
+        /* Přehrávač */
+        #playerContainer {
+            display: none;
+            width: 100%;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        video {
+            width: 100%;
+            display: block;
+        }
+        /* Výsledky */
+        .video-card {
+            background-color: var(--card-bg);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .video-info h3 {
+            margin: 0 0 5px 0;
+            font-size: 16px;
+        }
+        .play-btn {
+            background-color: #333;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .play-btn:hover {
+            background-color: var(--accent);
+        }
+        .loader, .loading-overlay {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>STREAMUJ.TO</h1>
+
+        <!-- Vyhledávání -->
+        <div class="search-box">
+            <input type="text" id="searchQuery" placeholder="Zadej název filmu nebo seriálu...">
+            <button onclick="search()">Hledat</button>
+        </div>
+
+        <!-- Přehrávač videa (na začátku skrytý) -->
+        <div id="playerContainer">
+            <video id="videoPlayer" controls crossorigin="anonymous">
+                Váš prohlížeč nepodporuje přehrávání videa.
+            </video>
+        </div>
+
+        <!-- Výsledky hledání -->
+        <div id="results"></div>
+    </div>
+
+    <!-- Načtení naší logiky -->
+    <script src="app.js"></script>
+</body>
+</html>
