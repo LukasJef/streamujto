@@ -243,7 +243,7 @@ async function playVideo(videoUrl, title, posterUrl) {
     }
 }
 
-// 5. Přímé stáhnutí souboru do PC / Mobilu
+// 5. Přímé otevření čistého odkazu v nové záložce (uživatel si stáhne pravým kliknutím)
 async function downloadVideo(videoUrl, title) {
     const btn = event.target;
     const puvodniText = btn.innerText;
@@ -262,13 +262,12 @@ async function downloadVideo(videoUrl, title) {
         }
 
         const directLink = data.sources[0].file;
-        const a = document.createElement('a');
-        a.href = directLink;
-        a.download = `${title}.mp4`;
-        a.target = '_blank'; 
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        
+        // Informujeme uživatele, jak má postupovat
+        alert(`Odkaz byl úspěšně vygenerován!\n\nVideo se otevře v nové záložce. Pro uložení do PC na něj klikněte pravým tlačítkem myši a zvolte "Uložit video jako...", případně klikněte na tři tečky v pravém dolním rohu videa.`);
+
+        // Bezpečně otevřeme přímé MP4 v novém okně
+        window.open(directLink, '_blank');
 
     } catch (err) {
         console.error(err);
