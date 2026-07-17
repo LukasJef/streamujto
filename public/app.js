@@ -146,7 +146,7 @@ function calculateTextSimilarity(str1, str2) {
     return intersection.size / union.size; // Jaccardův index similarity
 }
 
-// 3. Hledání plakátů na pozadí (STRIKTNÍ WHITELIST FILTR)
+// 3. Hledání plakátů na pozadí (STRIKTNÍ WHITELIST FILTR + PŘEHRAJTO FALLBACK)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
@@ -163,13 +163,11 @@ async function fetchPostersOneByOne(results) {
             .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
             .trim();
 
-        // 3. Vytvoříme pole základních slov, která UŽIVATEL HLEDÁ (whitelist)
-        // Např. pro "Dream Team (2025)" to bude pole ['dream', 'team']
+        // 3. Vytvoříme pole základních slov pro whitelist
         let whitelistWords = cleanTitle.toLowerCase()
             .split(/\s+/)
             .filter(word => word !== movieYear && word.length > 1);
 
-        // Dotaz pro IMDb omezíme na první 3 klíčová slova + rok
         const baseQuery = whitelistWords.slice(0, 3).join(' ');
         const imdbQuery = movieYear ? `${baseQuery} ${movieYear}` : baseQuery;
 
@@ -183,25 +181,19 @@ async function fetchPostersOneByOne(results) {
                 const imdbData = await imdbResponse.json();
                 
                 if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    // Procházíme výsledky z IMDb
                     for (let element of imdbData.description) {
                         if (!element["#IMG_POSTER"]) continue;
 
                         const imdbTitle = (element["#TITLE"] || '').toLowerCase();
                         const imdbYear = element["#YEAR"];
 
-                        // --- KONTROLA A: STRIKTNÍ WHITELIST ---
-                        // Každé jedno slovo z vyhledávání (dream, team) se MUSÍ objevit v názvu z IMDb.
-                        // Pokud tam jedno z nich chybí (jako v "Liverpool"), výsledek okamžitě odmítneme.
                         const vsechnaSlovaSedi = whitelistWords.every(word => imdbTitle.includes(word));
 
-                        // --- KONTROLA B: ROK (Volitelná, s tolerancí) ---
                         let rokSedi = true;
                         if (movieYear && imdbYear) {
                             rokSedi = Math.abs(parseInt(imdbYear) - parseInt(movieYear)) <= 1;
                         }
 
-                        // Pokud prošel všemi whitelist podmínkami, máme vítěze!
                         if (vsechnaSlovaSedi && rokSedi) {
                             posterUrl = element["#IMG_POSTER"];
                             break; 
@@ -213,12 +205,18 @@ async function fetchPostersOneByOne(results) {
             console.log(`Chyba vyhledávání pro: ${imdbQuery}`, err.message);
         }
 
-        // --- Zobrazení výsledku ---
+        // --- Zobrazení výsledku (Chytrý Fallback) ---
         if (posterUrl) {
+            // A. Máme originální plakát z IMDb
             imgElement.src = posterUrl;
             updateFavoritePoster(item.link, posterUrl);
+        } else if (item.thumbnail) {
+            // B. IMDb nic nenašlo -> Použijeme oříznutý náhled z Přehraj.to!
+            console.log(`[Fallback] IMDb selhalo, nasazuji náhled z Přehraj.to pro: ${item.title}`);
+            imgElement.src = item.thumbnail;
+            updateFavoritePoster(item.link, item.thumbnail);
         } else {
-            // Pokud výsledek z IMDb neprošel whitelist sítem, necháme tam bezpečný žlutý plakát
+            // C. Úplná nouzovka -> Žlutá klapka z Unsplashe
             if (imgElement.src !== BACKUP_POSTER_URL) {
                 imgElement.src = BACKUP_POSTER_URL;
             }
