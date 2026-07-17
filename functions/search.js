@@ -6,19 +6,13 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  const userAgents = [
-    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-  ];
-  const randomAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-
   const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': randomAgent,
+        // Klíčový krok: Maskujeme se přesně jako oficiální funkční Kodi addon!
+        'user-agent': 'kodi/prehraj.to',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'cs,en;q=0.5',
         'Referer': 'https://prehraj.to/'
@@ -26,39 +20,42 @@ export async function onRequest(context) {
     });
 
     if (response.status === 429) {
-      return new Response(JSON.stringify({ error: "Přehraj.to uplatňuje IP limit. Zkuste to za chvíli." }), { status: 429 });
+      return new Response(JSON.stringify({ error: "Přehraj.to vrátilo limit 429 i pro Kodi agenta." }), { status: 429 });
     }
 
     const html = await response.text();
     const results = [];
+
+    // Najdeme všechny bloky s videem. 
+    // Na základě rozboru hledáme odkazy s class="video--link" a názvy uvnitř class="video__title"
+    // Regex zachytí celý blok odkazu: <a ... class="video--link" ...> ... <h3 class="video__title">Název</h3> ... </a>
+    const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const titleRegex = /<h3[^>]+class="[^"]*video__title[^"]*"[^>]*>([\s\S]*?)<\/h3>/;
+    const sizeRegex = /<div[^>]+class="[^"]*video__tag--size[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+    const durationRegex = /<div[^>]+class="[^"]*video__tag--time[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+
+    let match;
     const seenLinks = new Set();
 
-    // Hledáme všechny odkazy <a> s jejich vnitřním textem (názvem videa)
-    const regex = /<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-    let match;
-
-    while ((match = regex.exec(html)) !== null) {
+    while ((match = videoBlockRegex.exec(html)) !== null) {
       const link = match[1];
-      let title = match[2].replace(/<[^>]*>/g, '').trim(); // Odstraníme vnitřní HTML (obrázky, spany)
+      const innerHtml = match[2];
 
-      // ODSTRANÍME NEŽÁDOUCÍ ODKAZY
-      // Skutečné video nemá v URL otazníky, neobsahuje "hledej", "login", "register", "javascript", atd.
-      const isSystemLink = link.includes('?') || 
-                           link.includes('hledej') || 
-                           link.includes('javascript:') || 
-                           link.includes('static') ||
-                           link.includes('public') ||
-                           link.startsWith('#') ||
-                           link === '/' ||
-                           link.includes('dmca') ||
-                           link.includes('podminky') ||
-                           link.includes('kontakt');
+      // Vytáhneme název, velikost a délku z vnitřku odkazu
+      const titleMatch = innerHtml.match(titleRegex);
+      const sizeMatch = innerHtml.match(sizeRegex);
+      const durationMatch = innerHtml.match(durationRegex);
 
-      if (!isSystemLink && title.length > 2 && !seenLinks.has(link)) {
+      if (titleMatch && !seenLinks.has(link)) {
         seenLinks.add(link);
+        
+        const title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
+        const size = sizeMatch ? sizeMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+        const duration = durationMatch ? durationMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+
         results.push({
           link: link,
-          title: title
+          title: `${title} (${size}${size && duration ? ' | ' : ''}${duration})`
         });
       }
     }
