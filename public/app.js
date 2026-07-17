@@ -244,6 +244,7 @@ async function playVideo(videoUrl, title, posterUrl) {
 }
 
 // 5. Přímé stáhnutí souboru do PC / Mobilu
+// 5. NOVÁ FUNKCE: Spolehlivé stahování random CDN odkazů bez CORS chyb
 async function downloadVideo(videoUrl, title) {
     const btn = event.target;
     const puvodniText = btn.innerText;
@@ -251,6 +252,7 @@ async function downloadVideo(videoUrl, title) {
     btn.disabled = true;
 
     try {
+        // 1. Zavoláme tvůj funkční endpoint, který vygeneruje ten dlouhý CDN odkaz s tokenem
         const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
         const data = await response.json();
 
@@ -262,21 +264,33 @@ async function downloadVideo(videoUrl, title) {
         }
 
         const directLink = data.sources[0].file;
-        const a = document.createElement('a');
-        a.href = directLink;
-        a.download = `${title}.mp4`;
-        a.target = '_blank'; 
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        
+        btn.innerText = 'Spouštím stahování...';
+
+        // 2. TRIK: Vytvoříme skrytý iframe (neviditelné podokno)
+        // Když do něj podstrčíme ten mp4 odkaz, prohlížeč pochopí, že ho neumí v malém skrytém okně zobrazit,
+        // a místo otevření ho natvrdo začne stahovat do tvé složky Stažené soubory.
+        let iframe = document.getElementById('hidden-downloader');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'hidden-downloader';
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+        }
+        
+        // Odpálíme stahování v něm
+        iframe.src = directLink;
 
     } catch (err) {
         console.error(err);
         alert('Chyba při komunikaci se serverem.');
     }
 
-    btn.innerText = puvodniText;
-    btn.disabled = false;
+    // Po krátké pauze vrátíme tlačítko do původního stavu
+    setTimeout(() => {
+        btn.innerText = puvodniText;
+        btn.disabled = false;
+    }, 2000);
 }
 
 
