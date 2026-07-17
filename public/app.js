@@ -1,17 +1,3 @@
-// Pomocné prvky z DOMu
-const searchInput = document.getElementById('searchQuery');
-const resultsDiv = document.getElementById('results');
-const playerContainer = document.getElementById('playerContainer');
-const videoPlayer = document.getElementById('videoPlayer');
-
-// Spuštění vyhledávání při stisku Enteru
-searchInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        search();
-    }
-});
-
-// 1. Funkce pro vyhledávání filmů
 async function search() {
   const query = document.getElementById('searchQuery').value.trim();
   if (!query) return;
@@ -19,28 +5,102 @@ async function search() {
   const resultsContainer = document.getElementById('results');
   resultsContainer.innerHTML = '<div class="loader">Vyhledávám videa a plakáty...</div>';
 
-  // Skryjeme přehrávač při novém vyhledávání, pokud byl otevřený
   document.getElementById('playerContainer').style.display = 'none';
 
-  try {
-    // Volání tvého Cloudflare Workeru
-    const response = await fetch(`/functions/search?q=${encodeURIComponent(query)}`);
-    const data = await response.json();
+  let globalPosterUrl = '';
 
-    if (!data.results || data.results.length === 0) {
-      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky.</div>';
+  // Náhodný parametr pro oklamání cache (prohlížeč si nebude pamatovat staré výsledky)
+  const cacheBuster = `&_cb=${Date.now()}`;
+
+  // 1. KROK: Získání plakátu z bezplatného IMDb API
+  try {
+    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}${cacheBuster}`;
+    const imdbResponse = await fetch(imdbApiUrl);
+
+    if (imdbResponse.ok) {
+      const imdbData = await imdbResponse.json();
+      if (imdbData && imdbData.description && imdbData.description.length > 0) {
+        const firstMatch = imdbData.description.find(item => item["#IMG_POSTER"]);
+        if (firstMatch) {
+          globalPosterUrl = firstMatch["#IMG_POSTER"];
+        }
+      }
+    }
+  } catch (imdbError) {
+    console.log("IMDb API momentálně nedostupné:", imdbError.message);
+  }
+
+  // 2. KROK: Načtení výsledků přes stabilnější CORS proxy z Přehraj.to
+  const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
+  // Změna proxy na cors-proxy.org, která je stabilnější v anonymních oknech
+  const proxyUrl = `https://api.cors-proxy.org/download?url=${encodeURIComponent(targetUrl)}`;
+  
+  try {
+    const response = await fetch(proxyUrl);
+    if (!response.ok) throw new Error("CORS Proxy selhala");
+    
+    const proxyData = await response.json();
+    // Některé proxy vrací data v objektu pod klíčem 'contents' nebo 'data'
+    const html = proxyData.contents || proxyData.data || (typeof proxyData === 'string' ? proxyData : '');
+    
+    if (!html) {
+      throw new Error("Nepodařilo se přečíst HTML kód ze stránky.");
+    }
+
+    const results = [];
+    const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const titleRegex = /<h3[^>]+class="[^"]*video__title[^"]*"[^>]*>([\s\S]*?)<\/h3>/;
+    const sizeRegex = /<div[^>]+class="[^"]*video__tag--size[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+    const durationRegex = /<div[^>]+class="[^"]*video__tag--time[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+    const imageRegex = /<img[^>]+(?:src|data-src)="([^"]+)"/;
+
+    let match;
+    const seenLinks = new Set();
+
+    while ((match = videoBlockRegex.exec(html)) !== null) {
+      const link = match[1];
+      const innerHtml = match[2];
+
+      const titleMatch = innerHtml.match(titleRegex);
+      const sizeMatch = innerHtml.match(sizeRegex);
+      const durationMatch = innerHtml.match(durationRegex);
+      const imageMatch = innerHtml.match(imageRegex);
+
+      if (titleMatch && !seenLinks.has(link)) {
+        seenLinks.add(link);
+        
+        const title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
+        const size = sizeMatch ? sizeMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+        const duration = durationMatch ? durationMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+        
+        let backupThumb = imageMatch ? imageMatch[1] : '';
+        if (backupThumb && backupThumb.startsWith('/')) {
+          backupThumb = `https://prehraj.to${backupThumb}`;
+        }
+
+        results.push({
+          link: link,
+          title: title,
+          size: size,
+          duration: duration,
+          thumb: globalPosterUrl || backupThumb
+        });
+      }
+    }
+
+    if (results.length === 0) {
+      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky pro tento výraz.</div>';
       return;
     }
 
-    // Přestavíme kontejner z řádků na moderní Netflix-style mřížku (Flexbox)
+    // Vykreslení moderní mřížky s kartami
     resultsContainer.style.display = "flex";
     resultsContainer.style.flexWrap = "wrap";
     resultsContainer.style.gap = "20px";
     resultsContainer.style.justifyContent = "center";
     resultsContainer.style.padding = "10px 0";
 
-    resultsContainer.innerHTML = data.results.map(item => {
-      // Pokud backend z IMDb nebo Přehraj.to dodal obrázek, použije se. Jinak nastoupí elegantní záloha.
+    resultsContainer.innerHTML = results.map(item => {
       const imgSrc = item.thumb ? item.thumb : 'https://via.placeholder.com/200x280/1f1f1f/ffffff?text=Bez+Plakátu';
 
       return `
@@ -56,73 +116,7 @@ async function search() {
     }).join('');
 
   } catch (error) {
-    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Nastala chyba při komunikaci se serverem.</div>';
+    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Nastala chyba při stahování dat z proxy.</div>';
     console.error(error);
   }
-}
-
-// 3. Načtení konkrétního videa do přehrávače
-async function playVideo(videoUrl) {
-    // Scrollneme nahoru k přehrávači
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    resultsDiv.insertAdjacentHTML('afterbegin', '<div class="loading-overlay">Načítám video stream...</div>');
-
-    try {
-        // Zavoláme náš get-video endpoint
-        const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
-        const data = await response.json();
-
-        // Odstraníme loading overlay
-        const overlay = document.querySelector('.loading-overlay');
-        if (overlay) overlay.remove();
-
-        if (data.error) {
-            alert(`Nepodařilo se přehrát: ${data.error}`);
-            return;
-        }
-
-        // Najdeme nejlepší kvalitu (často první v poli 'sources')
-        const videoSource = data.sources && data.sources[0];
-
-        if (!videoSource || !videoSource.file) {
-            alert('Nebyl nalezen žádný přehrávatelný soubor.');
-            return;
-        }
-
-        // Zobrazíme kontejner s přehrávačem
-        playerContainer.style.display = 'block';
-
-        // Nastavíme zdroj videa
-        videoPlayer.src = videoSource.file;
-
-        // Pokud jsou k dispozici titulky, přidáme je
-        // Nejdříve smažeme staré titulkové stopy
-        const existingTracks = videoPlayer.querySelectorAll('track');
-        existingTracks.forEach(track => track.remove());
-
-        if (data.tracks && data.tracks.length > 0) {
-            data.tracks.forEach(trackData => {
-                const track = document.createElement('track');
-                track.kind = 'subtitles';
-                track.label = trackData.label || 'Čeština';
-                track.srclang = trackData.srclang || 'cs';
-                track.src = trackData.file;
-                track.default = trackData.default || false;
-                videoPlayer.appendChild(track);
-            });
-        }
-
-        // Spustíme přehrávání
-        videoPlayer.load();
-        videoPlayer.play().catch(e => {
-            console.log("Automatické přehrávání bylo zablokováno prohlížečem. Klikněte na Play ručně.");
-        });
-
-    } catch (err) {
-        const overlay = document.querySelector('.loading-overlay');
-        if (overlay) overlay.remove();
-        alert('Chyba při získávání video streamu.');
-        console.error(err);
-    }
 }
