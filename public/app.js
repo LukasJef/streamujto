@@ -129,26 +129,36 @@ function renderResults(results) {
     });
 }
 
-// 3. Hledání plakátů na pozadí (Vylepšené čištění na první 4 slova)
+// 3. Hledání plakátů na pozadí (CHYTRÁ VERZE S ZACHOVÁNÍM ROKU)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         
-        // 1. Odstranění známého balastu (kvalita, dabing, atd.)
+        // 1. Pokusíme se z názvu vytáhnout čtyřmístné číslo roku (např. 2025 nebo 2026)
+        const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
+        const movieYear = yearMatch ? yearMatch[0] : '';
+
+        // 2. Odstranění známého balastu (kvalita, dabing, atd.)
         let cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama)/gi, '');
 
-        // 2. Nahrazení všech speciálních znaků, teček, čárek, podtržítek a závorek mezerou
+        // 3. Nahrazení všech speciálních znaků, teček, čárek a závorek mezerou
         cleanTitle = cleanTitle.replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ');
 
-        // 3. Ořezání přebytečných mezer a rozbití na jednotlivá slova
+        // 4. Ořezání přebytečných mezer a rozbití na jednotlivá slova
         const words = cleanTitle.trim().split(/\s+/);
 
-        // 4. Vezmeme pouze první 4 slova a spojíme je zpět do vyhledávacího řetězce
-        const finalQuery = words.slice(0, 4).join(' ');
+        // 5. Vezmeme první 3-4 slova, ale pokud to byla čísla roku, tak je odfiltrujeme (přidáme rok čistě na konec)
+        const cleanWords = words.filter(word => word !== movieYear).slice(0, 3);
+
+        // 6. Spojíme slova a pokud jsme našli rok, prskneme ho na úplný konec pro přesné zacílení
+        let finalQuery = cleanWords.join(' ');
+        if (movieYear) {
+            finalQuery += ` ${movieYear}`;
+        }
 
         try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery)}`;
+            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery.trim())}`;
             const imdbResponse = await fetch(imdbApiUrl);
 
             if (imdbResponse.ok) {
