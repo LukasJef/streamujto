@@ -12,66 +12,53 @@ searchInput.addEventListener('keypress', (e) => {
 });
 
 // 1. Funkce pro vyhledávání filmů
-async function searchMovies() {
-  const query = document.getElementById('searchInput').value.trim();
+async function search() {
+  const query = document.getElementById('searchQuery').value.trim();
   if (!query) return;
 
   const resultsContainer = document.getElementById('results');
-  resultsContainer.innerHTML = '<p style="color: white;">Vyhledávám...</p>';
+  resultsContainer.innerHTML = '<div class="loader">Vyhledávám videa a plakáty...</div>';
+
+  // Skryjeme přehrávač při novém vyhledávání, pokud byl otevřený
+  document.getElementById('playerContainer').style.display = 'none';
 
   try {
+    // Volání tvého Cloudflare Workeru
     const response = await fetch(`/functions/search?q=${encodeURIComponent(query)}`);
     const data = await response.json();
 
     if (!data.results || data.results.length === 0) {
-      resultsContainer.innerHTML = '<p style="color: white;">Nebyly nalezeny žádné výsledky.</p>';
+      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky.</div>';
       return;
     }
 
-    // Vyčistíme kontejner a nastavíme mu flexbox, aby to vypadalo jako netflix/grid
+    // Přestavíme kontejner z řádků na moderní Netflix-style mřížku (Flexbox)
     resultsContainer.style.display = "flex";
     resultsContainer.style.flexWrap = "wrap";
     resultsContainer.style.gap = "20px";
     resultsContainer.style.justifyContent = "center";
-    resultsContainer.style.padding = "20px";
+    resultsContainer.style.padding = "10px 0";
 
     resultsContainer.innerHTML = data.results.map(item => {
-      // KONTROLA: Pokud API nevrátilo žádný obrázek, dáme tam aspoň šedý obdélník s nápisem
-      const imgSrc = item.thumb ? item.thumb : 'https://via.placeholder.com/200x280/1a1a1a/ffffff?text=Bez+Obrazku';
+      // Pokud backend z IMDb nebo Přehraj.to dodal obrázek, použije se. Jinak nastoupí elegantní záloha.
+      const imgSrc = item.thumb ? item.thumb : 'https://via.placeholder.com/200x280/1f1f1f/ffffff?text=Bez+Plakátu';
 
       return `
-        <div style="width: 200px; background: #1a1a1a; padding: 12px; border-radius: 8px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #333;">
+        <div style="width: 180px; background-color: var(--card-bg); padding: 12px; border-radius: 6px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
           <div>
-            <!-- Obrázek s vynucenými rozměry -->
-            <img src="${imgSrc}" style="width: 100%; height: 260px; object-fit: cover; border-radius: 4px; background: #000; display: block; margin-bottom: 8px;">
-            <h3 style="font-size: 14px; font-family: sans-serif; margin: 5px 0; color: #fff; line-height: 1.3; max-height: 36px; overflow: hidden;">${item.title}</h3>
-            <p style="font-size: 11px; font-family: sans-serif; color: #aaa; margin: 4px 0 12px 0;">${item.size || 'Neznámá velikost'}</p>
+            <img src="${imgSrc}" style="width: 100%; height: 240px; object-fit: cover; border-radius: 4px; background-color: #000; display: block; margin-bottom: 10px;" referrerpolicy="no-referrer">
+            <h3 style="font-size: 14px; margin: 0 0 6px 0; color: var(--text); line-height: 1.3; max-height: 36px; overflow: hidden; text-align: left;">${item.title}</h3>
+            <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
           </div>
-          <button onclick="window.open('${item.link}', '_blank')" style="width: 100%; padding: 10px; background: #e50914; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-family: sans-serif;">Spustit</button>
+          <button class="play-btn" onclick="window.open('${item.link}', '_blank')" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Spustit</button>
         </div>
       `;
     }).join('');
 
   } catch (error) {
-    resultsContainer.innerHTML = '<p style="color: red;">Nastala chyba při vyhledávání.</p>';
+    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Nastala chyba při komunikaci se serverem.</div>';
     console.error(error);
   }
-}
-// 2. Vykreslení výsledků do HTML
-function renderResults(results) {
-    resultsDiv.innerHTML = '';
-    
-    results.forEach(item => {
-        const card = document.createElement('div');
-        card.className = 'video-card';
-        card.innerHTML = `
-            <div class="video-info">
-                <h3>${item.title}</h3>
-            </div>
-            <button class="play-btn" onclick="playVideo('${item.link}')">Spustit</button>
-        `;
-        resultsDiv.appendChild(card);
-    });
 }
 
 // 3. Načtení konkrétního videa do přehrávače
