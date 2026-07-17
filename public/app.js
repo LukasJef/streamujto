@@ -129,48 +129,59 @@ function renderResults(results) {
     });
 }
 
-// 3. Hledání plakátů na pozadí (CHYTRÁ VERZE S ZACHOVÁNÍM ROKU)
+// 3. Hledání plakátů na pozadí (Neprůstřelná verze s kontrolou roku)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
-        
-        // 1. Pokusíme se z názvu vytáhnout čtyřmístné číslo roku (např. 2025 nebo 2026)
+        const imgElement = document.getElementById(`movie-poster-${i}`);
+        if (!imgElement) continue;
+
+        // 1. Vytáhneme rok vydání z názvu (např. 2025)
         const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
         const movieYear = yearMatch ? yearMatch[0] : '';
 
-        // 2. Odstranění známého balastu (kvalita, dabing, atd.)
+        // 2. Vyčištění názvu od kvality a balastu
         let cleanTitle = item.title
-            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama)/gi, '');
+            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama|sportovni)/gi, '')
+            .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
+            .trim();
 
-        // 3. Nahrazení všech speciálních znaků, teček, čárek a závorek mezerou
-        cleanTitle = cleanTitle.replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ');
-
-        // 4. Ořezání přebytečných mezer a rozbití na jednotlivá slova
-        const words = cleanTitle.trim().split(/\s+/);
-
-        // 5. Vezmeme první 3-4 slova, ale pokud to byla čísla roku, tak je odfiltrujeme (přidáme rok čistě na konec)
-        const cleanWords = words.filter(word => word !== movieYear).slice(0, 3);
-
-        // 6. Spojíme slova a pokud jsme našli rok, prskneme ho na úplný konec pro přesné zacílení
-        let finalQuery = cleanWords.join(' ');
-        if (movieYear) {
-            finalQuery += ` ${movieYear}`;
-        }
+        // 3. Rozdělení na slova a vyhození roku z názvu, ať ho tam nemáme dvakrát
+        let words = cleanTitle.split(/\s+/).filter(word => word !== movieYear);
+        
+        // Vezmeme první 3 slova pro čistý vyhledávací dotaz
+        const baseName = words.slice(0, 3).join(' ');
+        
+        // Výsledný dotaz do IMDb (např. "Dream Team 2025")
+        const finalQuery = movieYear ? `${baseName} ${movieYear}` : baseName;
 
         try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery.trim())}`;
+            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery)}`;
             const imdbResponse = await fetch(imdbApiUrl);
 
             if (imdbResponse.ok) {
                 const imdbData = await imdbResponse.json();
                 
                 if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    const match = imdbData.description.find(element => element["#IMG_POSTER"]);
-                    const imgElement = document.getElementById(`movie-poster-${i}`);
+                    let bestMatch = null;
+
+                    // PŘÍSNÁ POJISTKA: Pokud máme rok, prohledáme výsledky z IMDb
+                    if (movieYear) {
+                        bestMatch = imdbData.description.find(element => 
+                            element["#IMG_POSTER"] && 
+                            element["#YEAR"] == movieYear // Rok z IMDb se musí PŘESNĚ rovnat roku souboru
+                        );
+                    }
+
+                    // Pokud nemáme rok v názvu filmu, vezmeme prostě první relevantní výsledek s plakátem
+                    if (!bestMatch && !movieYear) {
+                        bestMatch = imdbData.description.find(element => element["#IMG_POSTER"]);
+                    }
                     
-                    if (match && imgElement && match["#IMG_POSTER"]) {
-                        imgElement.src = match["#IMG_POSTER"];
-                        updateFavoritePoster(item.link, match["#IMG_POSTER"]);
+                    // Pokud jsme našli shodu (nebo schválený film), nasadíme plakát
+                    if (bestMatch && bestMatch["#IMG_POSTER"]) {
+                        imgElement.src = bestMatch["#IMG_POSTER"];
+                        updateFavoritePoster(item.link, bestMatch["#IMG_POSTER"]);
                         continue; 
                     }
                 }
@@ -179,8 +190,8 @@ async function fetchPostersOneByOne(results) {
             console.log(`Nepodařilo se načíst plakát pro: ${finalQuery}`, err.message);
         }
 
-        const imgElement = document.getElementById(`movie-poster-${i}`);
-        if (imgElement && imgElement.src !== BACKUP_POSTER_URL) {
+        // Pokud film neodpovídá roku nebo IMDb nic nenašlo, hodíme tam tvůj Unsplash záložní obrázek
+        if (imgElement.src !== BACKUP_POSTER_URL) {
             imgElement.src = BACKUP_POSTER_URL;
         }
     }
