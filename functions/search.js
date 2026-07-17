@@ -6,28 +6,36 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  // 1. KROK: Stáhneme jeden hlavní plakát z IMDb pro celý vyhledávaný dotaz
+  // 1. KROK: Stáhneme jeden hlavní plakát z IMDb API s maskovaným User-Agentem
   let globalPosterUrl = '';
   try {
     const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
-    const imdbRes = await fetch(imdbApiUrl);
+    
+    const imdbRes = await fetch(imdbApiUrl, {
+      headers: {
+        // KLÍČOVÁ ZMĚNA: Musíme předstírat, že jsme normální prohlížeč, jinak nám API nic nevrátí
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+      }
+    });
     
     if (imdbRes.ok) {
       const imdbData = await imdbRes.json();
-      if (imdbData.description && imdbData.description.length > 0) {
-        // Vezmeme plakát z úplně prvního (nejrelevantnějšího) nalezeného filmu
+      
+      // Podle dokumentace jsou výsledky schované v poli "description"
+      if (imdbData && imdbData.description && imdbData.description.length > 0) {
+        // Vezmeme hned první (nejrelevantnější) výsledek
         const topMatch = imdbData.description[0];
-        if (topMatch["#IMG_POSTER"]) {
+        if (topMatch && topMatch["#IMG_POSTER"]) {
           globalPosterUrl = topMatch["#IMG_POSTER"];
         }
       }
     }
   } catch (e) {
-    // Když IMDb API spadne, nevadí, web bude fungovat dál se záložními fotkami
-    console.log("IMDb API dočasně nedostupné");
+    console.log("IMDb API selhalo nebo neodpovědělo:", e.message);
   }
 
-  // 2. KROK: Vyhledáme videa na Přehraj.to
+  // 2. KROK: Vyhledáme videa na Přehraj.to (zůstává stejné)
   const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   
   try {
@@ -81,7 +89,7 @@ export async function onRequest(context) {
           title: title,
           size: size,
           duration: duration,
-          // Pokud máme filmový plakát z IMDb, dáme ho sem. Pokud ne, použijeme snapshot z Přehraj.to
+          // Pokud máme poster z IMDb, použijeme ho. Jinak dáme náhled z Přehraj.to
           thumb: globalPosterUrl || backupThumb
         });
       }
@@ -90,7 +98,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ results }), {
       headers: { 
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*' // Vyřeší případné CORS problémy s frontendem
+        'Access-Control-Allow-Origin': '*'
       }
     });
 
