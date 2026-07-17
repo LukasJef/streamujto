@@ -9,12 +9,9 @@ async function search() {
 
   let globalPosterUrl = '';
 
-  // Náhodný parametr pro oklamání cache (prohlížeč si nebude pamatovat staré výsledky)
-  const cacheBuster = `&_cb=${Date.now()}`;
-
-  // 1. KROK: Získání plakátu z bezplatného IMDb API
+  // 1. KROK: Získání plakátu z IMDb API
   try {
-    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}${cacheBuster}`;
+    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
     const imdbResponse = await fetch(imdbApiUrl);
 
     if (imdbResponse.ok) {
@@ -30,21 +27,19 @@ async function search() {
     console.log("IMDb API momentálně nedostupné:", imdbError.message);
   }
 
-  // 2. KROK: Načtení výsledků přes stabilnější CORS proxy z Přehraj.to
+  // 2. KROK: Stažení vyhledávání z Přehraj.to přes AllOrigins CORS Proxy
   const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
-  // Změna proxy na cors-proxy.org, která je stabilnější v anonymních oknech
-  const proxyUrl = `https://api.cors-proxy.org/download?url=${encodeURIComponent(targetUrl)}`;
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
   
   try {
     const response = await fetch(proxyUrl);
     if (!response.ok) throw new Error("CORS Proxy selhala");
     
     const proxyData = await response.json();
-    // Některé proxy vrací data v objektu pod klíčem 'contents' nebo 'data'
-    const html = proxyData.contents || proxyData.data || (typeof proxyData === 'string' ? proxyData : '');
+    const html = proxyData.contents; // AllOrigins ukládá HTML kód do proměnné contents
     
     if (!html) {
-      throw new Error("Nepodařilo se přečíst HTML kód ze stránky.");
+      throw new Error("Nepodařilo se načíst obsah stránky.");
     }
 
     const results = [];
@@ -89,11 +84,11 @@ async function search() {
     }
 
     if (results.length === 0) {
-      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky pro tento výraz.</div>';
+      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky.</div>';
       return;
     }
 
-    // Vykreslení moderní mřížky s kartami
+    // Zapnutí flexbox mřížky pro karty
     resultsContainer.style.display = "flex";
     resultsContainer.style.flexWrap = "wrap";
     resultsContainer.style.gap = "20px";
@@ -116,7 +111,7 @@ async function search() {
     }).join('');
 
   } catch (error) {
-    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Nastala chyba při stahování dat z proxy.</div>';
+    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Chyba: Nepodařilo se spojit s vyhledáváním. Zkuste to znovu.</div>';
     console.error(error);
   }
 }
