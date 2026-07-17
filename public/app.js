@@ -4,6 +4,11 @@ const resultsDiv = document.getElementById('results');
 const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
 
+// Globální proměnná pro sledování aktuálně spuštěného videa pro timestampy
+let currentVideoId = null;
+let currentVideoTitle = null;
+let currentVideoPoster = null;
+
 // Adresa tvého záložního obrázku
 const BACKUP_POSTER_URL = 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=300&auto=format&fit=crop';
 
@@ -12,6 +17,18 @@ searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         search();
     }
+});
+
+// Inicializace menu při načtení stránky
+document.addEventListener('DOMContentLoaded', () => {
+    updateCacheMenuLists();
+    
+    // Každých 5 sekund uložíme aktuální čas videa, pokud zrovna hraje
+    setInterval(() => {
+        if (videoPlayer && !videoPlayer.paused && currentVideoId) {
+            saveVideoProgress(currentVideoId, currentVideoTitle, currentVideoPoster, videoPlayer.currentTime);
+        }
+    }, 5000);
 });
 
 // Extrémně rychlá vestavěná "AI" filtrace na hovadiny
@@ -29,7 +46,7 @@ async function search() {
     const query = searchInput.value.trim();
     if (!query) return;
 
-    resultsDiv.innerHTML = '<div class="loader">Hledám filmy...</div>';
+    resultsDiv.innerHTML = '<div class="loader">Hledám filmy na Přehraj.to...</div>';
     playerContainer.style.display = 'none';
     videoPlayer.pause();
 
@@ -64,7 +81,7 @@ async function search() {
     }
 }
 
-// 2. Vykreslení základních 12 karet (přidáno tlačítko Stáhnout)
+// 2. Vykreslení základních 12 karet
 function renderResults(results) {
     resultsDiv.innerHTML = '';
     
@@ -85,9 +102,17 @@ function renderResults(results) {
         card.style.flexDirection = "column";
         card.style.justifyContent = "space-between";
         card.style.boxShadow = "0 4px 6px rgba(0,0,0,0.2)";
+        card.style.position = "relative";
 
-        // Do HTML pod tlačítko spustit vkládáme tlačítko pro stažení
+        const isFav = isFavorite(item.link);
+
         card.innerHTML = `
+            <!-- Tlačítko pro přidání do oblíbených přímo na plakátu -->
+            <button onclick="toggleFavorite('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src)" 
+                    style="position: absolute; top: 18px; right: 18px; background: rgba(0,0,0,0.7); border: none; color: ${isFav ? '#ffca28' : '#fff'}; font-size: 18px; padding: 5px 8px; border-radius: 4px; cursor: pointer; z-index: 10;">
+                ${isFav ? '★' : '☆'}
+            </button>
+
             <div>
                 <img id="movie-poster-${index}" src="${BACKUP_POSTER_URL}" 
                      onerror="this.onerror=null; this.src='${BACKUP_POSTER_URL}';"
@@ -96,7 +121,7 @@ function renderResults(results) {
                 <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
             </div>
             <div>
-                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;" onclick="playVideo('${item.link}')">Spustit</button>
+                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;" onclick="playVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src)">Spustit</button>
                 <button class="download-btn" style="width: 100%; padding: 6px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="downloadVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}')">Stáhnout film</button>
             </div>
         `;
@@ -128,6 +153,8 @@ async function fetchPostersOneByOne(results) {
                     
                     if (match && imgElement && match["#IMG_POSTER"]) {
                         imgElement.src = match["#IMG_POSTER"];
+                        // Pokud mezitím uživatel přidal film do oblíbených z menu, aktualizujeme tam fotku
+                        updateFavoritePoster(item.link, match["#IMG_POSTER"]);
                         continue; 
                     }
                 }
@@ -143,10 +170,15 @@ async function fetchPostersOneByOne(results) {
     }
 }
 
-// 4. Načtení konkrétního videa do přehrávače
-async function playVideo(videoUrl) {
+// 4. Načtení konkrétního videa do přehrávače + Ověření Timestampu
+async function playVideo(videoUrl, title, posterUrl) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     resultsDiv.insertAdjacentHTML('afterbegin', '<div class="loading-overlay">Načítám video stream...</div>');
+
+    // Nastavíme globální proměnné pro autosave
+    currentVideoId = videoUrl;
+    currentVideoTitle = title;
+    currentVideoPoster = posterUrl;
 
     try {
         const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
@@ -185,6 +217,20 @@ async function playVideo(videoUrl) {
         }
 
         videoPlayer.load();
+
+        // KONTROLA HISTORIE SLEDOVÁNÍ (TIMESTAMP)
+        const savedTime = getVideoProgress(videoUrl);
+        if (savedTime > 10) {
+            // Zptáme se uživatele, zda chce pokračovat
+            const odZnova = confirm(`Našli jsme rozkoukanou pozici u filmu "${title}". \n\nKlikněte na "OK" pro pokračování (odečteno 10s), nebo na "Zrušit" pro přehrávání od začátku.`);
+            if (odZnova) {
+                // Nastavíme čas o 10 sekund zpět (ale ne do mínusu)
+                videoPlayer.currentTime = Math.max(0, savedTime - 10);
+            } else {
+                videoPlayer.currentTime = 0;
+            }
+        }
+
         videoPlayer.play().catch(e => {
             console.log("Automatické přehrávání zablokováno. Klikněte na Play.");
         });
@@ -197,9 +243,8 @@ async function playVideo(videoUrl) {
     }
 }
 
-// 5. NOVÁ FUNKCE: Přímé stáhnutí souboru do PC / Mobilu
+// 5. Přímé stáhnutí souboru do PC / Mobilu
 async function downloadVideo(videoUrl, title) {
-    // Vytvoříme dočasný loading text přímo na kliknutém tlačítku
     const btn = event.target;
     const puvodniText = btn.innerText;
     btn.innerText = 'Získávám odkaz...';
@@ -217,13 +262,10 @@ async function downloadVideo(videoUrl, title) {
         }
 
         const directLink = data.sources[0].file;
-
-        // Vytvoříme skrytý stahovací element a simulujeme kliknutí
         const a = document.createElement('a');
         a.href = directLink;
-        // Pokusíme se vnutit hezký název souboru
         a.download = `${title}.mp4`;
-        a.target = '_blank'; // Kdyby download selhal, otevře se v nové záložce, kde stačí dát pravé kliknout -> Uložit video jako
+        a.target = '_blank'; 
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -233,7 +275,128 @@ async function downloadVideo(videoUrl, title) {
         alert('Chyba při komunikaci se serverem.');
     }
 
-    // Vrátíme tlačítko do původního stavu
     btn.innerText = puvodniText;
     btn.disabled = false;
+}
+
+
+// ==========================================
+// LOGIKA PRO LOCAL STORAGE & INDEX MENU
+// ==========================================
+
+// Otevření / Zavření pravého menu
+function toggleCacheMenu() {
+    const menu = document.getElementById('cacheMenu');
+    if (menu.style.display === 'none') {
+        updateCacheMenuLists();
+        menu.style.display = 'block';
+    } else {
+        menu.style.display = 'none';
+    }
+}
+
+// Pomocné funkce pro Ukládání a Načítání historie sledování
+function saveVideoProgress(url, title, poster, time) {
+    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
+    history[url] = { title, poster, time, updated: Date.now() };
+    localStorage.setItem('watchHistory', JSON.stringify(history));
+    updateCacheMenuLists();
+}
+
+function getVideoProgress(url) {
+    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
+    return history[url] ? history[url].time : 0;
+}
+
+// Pomocné funkce pro Oblíbené filmy
+function isFavorite(url) {
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    return favorites.some(item => item.url === url);
+}
+
+function toggleFavorite(url, title, poster) {
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    const index = favorites.findIndex(item => item.url === url);
+
+    if (index > -1) {
+        favorites.splice(index, 1); // Odebrat
+    } else {
+        favorites.push({ url, title, poster }); // Přidat
+    }
+
+    localStorage.setItem('favorites', JSON.stringify(favorites));
+    
+    // Refresh aktuálního stavu vyhledávání a menu
+    updateCacheMenuLists();
+    if (searchInput.value.trim()) {
+        // Pokud zrovna něco vyhledáváme, zachováme stav hvězdiček na kartách
+        const favButtons = document.querySelectorAll('button[onclick^="toggleFavorite"]');
+        search(); 
+    }
+}
+
+function updateFavoritePoster(url, realPoster) {
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
+    
+    let updatedFav = false;
+    favorites = favorites.map(item => {
+        if (item.url === url) { item.poster = realPoster; updatedFav = true; }
+        return item;
+    });
+    
+    if (history[url]) {
+        history[url].poster = realPoster;
+        localStorage.setItem('watchHistory', JSON.stringify(history));
+    }
+    
+    if (updatedFav) {
+        localStorage.setItem('favorites', JSON.stringify(favorites));
+    }
+}
+
+// Aktualizace seznamů uvnitř Index Menu na pravé straně
+function updateCacheMenuLists() {
+    const historyList = document.getElementById('continueWatchingList');
+    const favList = document.getElementById('favoritesList');
+    
+    if (!historyList || !favList) return;
+
+    // 1. Vykreslení Rozkoukaných
+    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
+    // Seřadíme podle času změny, abychom viděli nejnovější nahoře
+    let sortedHistory = Object.keys(history)
+        .map(key => ({ url: key, ...history[key] }))
+        .sort((a, b) => b.updated - a.updated)
+        .slice(0, 5); // Max 5 rozkoukaných v menu
+
+    if (sortedHistory.length === 0) {
+        historyList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádná rozkoukaná videa.</p>';
+    } else {
+        historyList.innerHTML = sortedHistory.map(item => `
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="playVideo('${item.url}', '${item.title.replace(/'/g, "\\'")}', '${item.poster}')">
+                <img src="${item.poster}" style="width:40px; height:55px; object-fit:cover; border-radius:2px;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:12px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
+                    <div style="font-size:10px; color:#aaa;">Zbývá od: ${Math.floor(item.time / 60)} min</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // 2. Vykreslení Oblíbených
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    if (favorites.length === 0) {
+        favList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádné oblíbené filmy.</p>';
+    } else {
+        favList.innerHTML = favorites.map(item => `
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="playVideo('${item.url}', '${item.title.replace(/'/g, "\\'")}', '${item.poster}')">
+                <img src="${item.poster}" style="width:40px; height:55px; object-fit:cover; border-radius:2px;">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:12px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
+                </div>
+                <button onclick="event.stopPropagation(); toggleFavorite('${item.url}')" style="background:transparent; border:none; color:#ffca28; cursor:pointer; font-size:16px;">★</button>
+            </div>
+        `).join('');
+    }
 }
