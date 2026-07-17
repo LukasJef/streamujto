@@ -129,7 +129,7 @@ function renderResults(results) {
     });
 }
 
-// 3. Hledání plakátů na pozadí (Neprůstřelná verze s kontrolou roku)
+// 3. Hledání plakátů na pozadí (DVOJITÁ POJISTKA: Kontrola roku + shody názvu)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
@@ -140,20 +140,18 @@ async function fetchPostersOneByOne(results) {
         const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
         const movieYear = yearMatch ? yearMatch[0] : '';
 
-        // 2. Vyčištění názvu od kvality a balastu
+        // 2. Vyčištění názvu od kvality a balastu pro vyhledávací dotaz
         let cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama|sportovni)/gi, '')
             .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
             .trim();
 
-        // 3. Rozdělení na slova a vyhození roku z názvu, ať ho tam nemáme dvakrát
+        // 3. Rozdělení na slova a vyhození roku z názvu
         let words = cleanTitle.split(/\s+/).filter(word => word !== movieYear);
         
-        // Vezmeme první 3 slova pro čistý vyhledávací dotaz
-        const baseName = words.slice(0, 3).join(' ');
-        
-        // Výsledný dotaz do IMDb (např. "Dream Team 2025")
-        const finalQuery = movieYear ? `${baseName} ${movieYear}` : baseName;
+        // První 2-3 slova jako hlavní stavební kámen názvu (např. "Dream Team")
+        const coreTitle = words.slice(0, 3).join(' ');
+        const finalQuery = movieYear ? `${coreTitle} ${movieYear}` : coreTitle;
 
         try {
             const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(finalQuery)}`;
@@ -165,20 +163,26 @@ async function fetchPostersOneByOne(results) {
                 if (imdbData && imdbData.description && imdbData.description.length > 0) {
                     let bestMatch = null;
 
-                    // PŘÍSNÁ POJISTKA: Pokud máme rok, prohledáme výsledky z IMDb
-                    if (movieYear) {
-                        bestMatch = imdbData.description.find(element => 
-                            element["#IMG_POSTER"] && 
-                            element["#YEAR"] == movieYear // Rok z IMDb se musí PŘESNĚ rovnat roku souboru
-                        );
-                    }
+                    // Projdeme nalezené výsledky z IMDb a hledáme ten pravý
+                    for (let element of imdbData.description) {
+                        if (!element["#IMG_POSTER"]) continue;
 
-                    // Pokud nemáme rok v názvu filmu, vezmeme prostě první relevantní výsledek s plakátem
-                    if (!bestMatch && !movieYear) {
-                        bestMatch = imdbData.description.find(element => element["#IMG_POSTER"]);
+                        const imdbTitle = (element["#TITLE"] || '').toLowerCase();
+                        const searchWord = words[0] ? words[0].toLowerCase() : ''; // První slovo (např. "dream")
+
+                        // PODMÍNKA: 
+                        // 1. Musí sedět rok (pokud ho máme)
+                        // 2. Název z IMDb musí obsahovat hlavní klíčové slovo (aby to nevzalo "Liverpool")
+                        const rokSedi = movieYear ? (element["#YEAR"] == movieYear) : true;
+                        const nazevObsahujeSlovo = imdbTitle.includes(searchWord);
+
+                        if (rokSedi && nazevObsahujeSlovo) {
+                            bestMatch = element;
+                            break; // Našli jsme ideální shodu, končíme cyklus
+                        }
                     }
                     
-                    // Pokud jsme našli shodu (nebo schválený film), nasadíme plakát
+                    // Pokud jsme našli bezpečně ověřený film, nasadíme plakát
                     if (bestMatch && bestMatch["#IMG_POSTER"]) {
                         imgElement.src = bestMatch["#IMG_POSTER"];
                         updateFavoritePoster(item.link, bestMatch["#IMG_POSTER"]);
@@ -190,7 +194,7 @@ async function fetchPostersOneByOne(results) {
             console.log(`Nepodařilo se načíst plakát pro: ${finalQuery}`, err.message);
         }
 
-        // Pokud film neodpovídá roku nebo IMDb nic nenašlo, hodíme tam tvůj Unsplash záložní obrázek
+        // Pokud to neprošlo filtrem, raději dáme neutrální záložní obrázek
         if (imgElement.src !== BACKUP_POSTER_URL) {
             imgElement.src = BACKUP_POSTER_URL;
         }
