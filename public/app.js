@@ -3,13 +3,13 @@ async function search() {
   if (!query) return;
 
   const resultsContainer = document.getElementById('results');
-  resultsContainer.innerHTML = '<div class="loader">Vyhledávám videa a plakáty...</div>';
+  resultsContainer.innerHTML = '<div class="loader">Vyhledávám...</div>';
 
   document.getElementById('playerContainer').style.display = 'none';
 
   let globalPosterUrl = '';
 
-  // 1. KROK: Získání plakátu z IMDb API
+  // 1. KROK: Vytáhneme plakát z IMDb (který nám prokazatelně funguje!)
   try {
     const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
     const imdbResponse = await fetch(imdbApiUrl);
@@ -24,23 +24,21 @@ async function search() {
       }
     }
   } catch (imdbError) {
-    console.log("IMDb API momentálně nedostupné:", imdbError.message);
+    console.log("IMDb API selhalo, ale pokračujeme dál:", imdbError.message);
   }
 
-  // 2. KROK: Stažení vyhledávání z Přehraj.to přes AllOrigins CORS Proxy
+  // 2. KROK: Načtení dat z Přehraj.to přes AllOrigins proxy
   const targetUrl = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
   const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
   
   try {
     const response = await fetch(proxyUrl);
-    if (!response.ok) throw new Error("CORS Proxy selhala");
+    if (!response.ok) throw new Error("Proxy neodpovídá");
     
     const proxyData = await response.json();
-    const html = proxyData.contents; // AllOrigins ukládá HTML kód do proměnné contents
+    const html = proxyData.contents;
     
-    if (!html) {
-      throw new Error("Nepodařilo se načíst obsah stránky.");
-    }
+    if (!html) throw new Error("Žádný obsah z proxy");
 
     const results = [];
     const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
@@ -84,11 +82,11 @@ async function search() {
     }
 
     if (results.length === 0) {
-      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky.</div>';
+      resultsContainer.innerHTML = '<div class="loader">Nebyly nalezeny žádné výsledky na Přehraj.to.</div>';
       return;
     }
 
-    // Zapnutí flexbox mřížky pro karty
+    // 3. KROK: Vykreslení výsledků do mřížky
     resultsContainer.style.display = "flex";
     resultsContainer.style.flexWrap = "wrap";
     resultsContainer.style.gap = "20px";
@@ -111,7 +109,18 @@ async function search() {
     }).join('');
 
   } catch (error) {
-    resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Chyba: Nepodařilo se spojit s vyhledáváním. Zkuste to znovu.</div>';
-    console.error(error);
+    // Zachráníme situaci: Proxy pro videa selhala, ale ukážeme aspoň ten nalezený plakát z IMDb jako info!
+    if (globalPosterUrl) {
+      resultsContainer.innerHTML = `
+        <div style="text-align: center; color: white; max-width: 300px;">
+          <p style="color: var(--accent); font-weight: bold;">Videa z Přehraj.to se nepodařilo načíst (CORS limit), ale film jsme našli:</p>
+          <img src="${globalPosterUrl}" style="width: 200px; height: 280px; object-fit: cover; border-radius: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+          <h3 style="margin-top: 10px;">${query}</h3>
+        </div>
+      `;
+    } else {
+      resultsContainer.innerHTML = '<div class="loader" style="color: var(--accent);">Došlo k chybě sítě. Zkuste hledání opakovat za chvíli.</div>';
+    }
+    console.error("Chyba vyhledávání:", error);
   }
 }
