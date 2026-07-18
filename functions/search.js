@@ -7,37 +7,61 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  // REŽIM 1: Inteligentní vyhledávání filmů pro hlavní mřížku (S počeštěním)
+  const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+
+  // REŽIM 1: Vyhledávání filmů pro hlavní mřížku
   if (mode === 'movies') {
     try {
       let finalResults = [];
 
-      // KROK 1: Zkusíme nejdříve české CZDB
-      const czdbRes = await fetch(`http://api.czdb.cz?q=${encodeURIComponent(query)}`);
-      const czdbData = await czdbRes.json();
+      // KROK 1: První rychlý pokus přímo přes české CZDB (OPRAVENÁ URL)
+      try {
+        const czdbRes = await fetch(`http://api.czdb.cz/search?q=${encodeURIComponent(query)}`, { headers });
+        const czdbData = await czdbRes.json();
 
-      if (czdbData && czdbData !== false) {
-        const normalized = Array.isArray(czdbData) ? czdbData : [czdbData];
-        finalResults = normalized.map(item => ({
-          id: item.imdb_id || null,
-          title: item.title,
-          originalTitle: item.title,
-          year: item.year || '',
-          poster: item.poster || null,
-          description: item.description || '',
-          url: item.url || '',
-          source: 'czdb'
-        }));
+        if (czdbData && czdbData !== false) {
+          const normalized = Array.isArray(czdbData) ? czdbData : [czdbData];
+          if (normalized.length > 0 && normalized[0] !== null) {
+            finalResults = normalized.filter(item => item && item.title).map(item => ({
+              id: item.imdb_id || null,
+              title: item.title,
+              originalTitle: item.title,
+              year: item.year || '',
+              poster: item.poster || null,
+              description: item.description || '',
+              url: item.url || '',
+              source: 'czdb',
+              userQuery: query
+            }));
+          }
+        }
+      } catch (e) {
+        console.log("Prvotní CZDB dotaz selhal:", e.message);
       }
 
-      // KROK 2: Pokud CZDB nic nenašlo, jdeme na IMDb a budeme překládat zpět
+      // KROK 2: Pokud CZDB napřímo nic nenašlo, zapojíme IMDb
       if (finalResults.length === 0) {
-        const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`);
-        if (imdbRes.ok) {
-          const imdbData = await imdbRes.json();
-          const imdbItems = imdbData.description || [];
+        let imdbData = null;
+        
+        // Pokus A: Vyhledávání s původním textem
+        try {
+          const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`, { headers });
+          if (imdbRes.ok) imdbData = await imdbRes.json();
+        } catch (e) {}
 
-          // Vezmeme top 6 výsledků z IMDb a zkusíme je poslat zpět do CZDB pro český název
+        // Pokus B: Očištění od diakritiky jako záloha pro IMDb
+        if (!imdbData || !imdbData.description || imdbData.description.length === 0) {
+          const cleanQ = query.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          try {
+            const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanQ)}`, { headers });
+            if (imdbRes.ok) imdbData = await imdbRes.json();
+          } catch (e) {}
+        }
+
+        // Pokud máme z IMDb data, zkusíme je zpětně počeštit přes CZDB
+        if (imdbData && imdbData.description && imdbData.description.length > 0) {
+          const imdbItems = imdbData.description.filter(item => item["#TITLE"]);
+
           for (const item of imdbItems.slice(0, 6)) {
             const engTitle = item["#TITLE"];
             const year = item["#YEAR"];
@@ -45,28 +69,28 @@ export async function onRequest(context) {
             const actors = item["#ACTORS"];
             const imdbPoster = item["#IMG_POSTER"];
 
-            let czechTitle = engTitle; // výchozí fallback
+            let czechTitle = engTitle;
             let czdbUrl = '';
             let czdbDesc = '';
 
-            // OBRÁCENÝ PROCES: Vezmeme EN název + ROK z IMDb a zkusíme znovu CZDB
+            // Obrácený proces: Dotaz do CZDB přes EN název + rok z IMDb (OPRAVENÁ URL)
             try {
               const czCheckUrl = year 
-                ? `http://api.czdb.cz?q=${encodeURIComponent(engTitle)}&y=${year}`
-                : `http://api.czdb.cz?q=${encodeURIComponent(engTitle)}`;
+                ? `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}&y=${year}`
+                : `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}`;
               
-              const czCheck = await fetch(czCheckUrl);
+              const czCheck = await fetch(czCheckUrl, { headers });
               const czCheckData = await czCheck.json();
 
               if (czCheckData && czCheckData !== false) {
                 const single = Array.isArray(czCheckData) ? czCheckData[0] : czCheckData;
-                if (single.title) {
-                  czechTitle = single.title; // Máme český název
+                if (single && single.title) {
+                  czechTitle = single.title; 
                   czdbUrl = single.url || '';
                   czdbDesc = single.description || '';
                 }
               }
-            } catch (e) { console.log("Chyba při zpětném překladu přes CZDB"); }
+            } catch (e) {}
 
             finalResults.push({
               id: imdbId,
@@ -77,7 +101,8 @@ export async function onRequest(context) {
               actors: actors || '',
               description: czdbDesc,
               url: czdbUrl,
-              source: 'imdb'
+              source: 'imdb',
+              userQuery: query
             });
           }
         }
