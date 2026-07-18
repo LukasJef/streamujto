@@ -1,3 +1,27 @@
+// Pomocná funkce pro bezpečné stahování a parsování JSONu bez rizika pádu na HTML textu
+async function safeFetchJson(url, headers) {
+  try {
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      console.log(`Server ${url} vrátil status kód: ${res.status}`);
+      return null;
+    }
+    
+    const text = await res.text();
+    
+    // Pokud odpověď začíná znakem < (je to HTML stránka / Cloudflare block), odmítneme ji parsovat
+    if (text.trim().startsWith('<')) {
+      console.log(`Varování: URL ${url} vrátila HTML místo JSONu (pravděpodobně chybová stránka).`);
+      return null;
+    }
+    
+    return JSON.parse(text);
+  } catch (e) {
+    console.log(`Selhal pokus o bezpečné stažení z URL ${url}:`, e.message);
+    return null;
+  }
+}
+
 export async function onRequest(context) {
   const { searchParams } = new URL(context.request.url);
   const query = searchParams.get('q');
@@ -7,60 +31,53 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400 });
   }
 
-  const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+  const headers = { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json'
+  };
 
-  // REŽIM 1: Vyhledávání filmů pro hlavní mřížku
+  // REŽIM 1: Inteligentní vyhledávání filmů pro hlavní mřížku
   if (mode === 'movies') {
     try {
       let finalResults = [];
 
-      // KROK 1: První rychlý pokus přímo přes české CZDB (OPRAVENÁ URL)
-      try {
-        const czdbRes = await fetch(`http://api.czdb.cz/search?q=${encodeURIComponent(query)}`, { headers });
-        const czdbData = await czdbRes.json();
+      // KROK 1: Rychlý pokus přímo přes české CZDB
+      const czdbData = await safeFetchJson(`http://api.czdb.cz/search?q=${encodeURIComponent(query)}`, headers);
 
-        if (czdbData && czdbData !== false) {
-          const normalized = Array.isArray(czdbData) ? czdbData : [czdbData];
-          if (normalized.length > 0 && normalized[0] !== null) {
-            finalResults = normalized.filter(item => item && item.title).map(item => ({
-              id: item.imdb_id || null,
-              title: item.title,
-              originalTitle: item.title,
-              year: item.year || '',
-              poster: item.poster || null,
-              description: item.description || '',
-              url: item.url || '',
-              source: 'czdb',
-              userQuery: query
-            }));
-          }
+      if (czdbData && czdbData !== false) {
+        const normalized = Array.isArray(czdbData) ? czdbData : [czdbData];
+        // Odfiltrujeme případné nevalidní objekty
+        const validItems = normalized.filter(item => item && item.title);
+        
+        if (validItems.length > 0) {
+          finalResults = validItems.map(item => ({
+            id: item.imdb_id || null,
+            title: item.title,
+            originalTitle: item.title,
+            year: item.year || '',
+            poster: item.poster || null,
+            description: item.description || '',
+            url: item.url || '',
+            source: 'czdb',
+            userQuery: query
+          }));
         }
-      } catch (e) {
-        console.log("Prvotní CZDB dotaz selhal:", e.message);
       }
 
-      // KROK 2: Pokud CZDB napřímo nic nenašlo, zapojíme IMDb
+      // KROK 2: Pokud CZDB napřímo nic nenašlo (nebo vrátilo chybu), zkusíme IMDb zálohu
       if (finalResults.length === 0) {
-        let imdbData = null;
-        
         // Pokus A: Vyhledávání s původním textem
-        try {
-          const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`, { headers });
-          if (imdbRes.ok) imdbData = await imdbRes.json();
-        } catch (e) {}
+        let imdbData = await safeFetchJson(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`, headers);
 
-        // Pokus B: Očištění od diakritiky jako záloha pro IMDb
+        // Pokus B: Pokud Pokus A nic nenašel, očistíme text od diakritiky (pro IMDb)
         if (!imdbData || !imdbData.description || imdbData.description.length === 0) {
           const cleanQ = query.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          try {
-            const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanQ)}`, { headers });
-            if (imdbRes.ok) imdbData = await imdbRes.json();
-          } catch (e) {}
+          imdbData = await safeFetchJson(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanQ)}`, headers);
         }
 
-        // Pokud máme z IMDb data, zkusíme je zpětně počeštit přes CZDB
-        if (imdbData && imdbData.description && imdbData.description.length > 0) {
-          const imdbItems = imdbData.description.filter(item => item["#TITLE"]);
+        // Pokud jsme z IMDb dostali validní pole, zkusíme položky počeštit
+        if (imdbData && imdbData.description && Array.isArray(imdbData.description)) {
+          const imdbItems = imdbData.description.filter(item => item && item["#TITLE"]);
 
           for (const item of imdbItems.slice(0, 6)) {
             const engTitle = item["#TITLE"];
@@ -73,24 +90,21 @@ export async function onRequest(context) {
             let czdbUrl = '';
             let czdbDesc = '';
 
-            // Obrácený proces: Dotaz do CZDB přes EN název + rok z IMDb (OPRAVENÁ URL)
-            try {
-              const czCheckUrl = year 
-                ? `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}&y=${year}`
-                : `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}`;
-              
-              const czCheck = await fetch(czCheckUrl, { headers });
-              const czCheckData = await czCheck.json();
+            // Zpětný překlad přes CZDB (EN název + Rok)
+            const czCheckUrl = year 
+              ? `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}&y=${year}`
+              : `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}`;
+            
+            const czCheckData = await safeFetchJson(czCheckUrl, headers);
 
-              if (czCheckData && czCheckData !== false) {
-                const single = Array.isArray(czCheckData) ? czCheckData[0] : czCheckData;
-                if (single && single.title) {
-                  czechTitle = single.title; 
-                  czdbUrl = single.url || '';
-                  czdbDesc = single.description || '';
-                }
+            if (czCheckData && czCheckData !== false) {
+              const single = Array.isArray(czCheckData) ? czCheckData[0] : czCheckData;
+              if (single && single.title) {
+                czechTitle = single.title;
+                czdbUrl = single.url || '';
+                czdbDesc = single.description || '';
               }
-            } catch (e) {}
+            }
 
             finalResults.push({
               id: imdbId,
@@ -108,16 +122,24 @@ export async function onRequest(context) {
         }
       }
 
+      // Vždy vrátíme čistou JSON odpověď, i kdyby byla prázdná
       return new Response(JSON.stringify({ results: finalResults }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        }
       });
 
     } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+      // Globální záchranná síť
+      return new Response(JSON.stringify({ error: "Interní chyba serveru: " + err.message, results: [] }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
   }
 
-  // REŽIM 2: Hledání souborů na Přehraj.to
+  // REŽIM 2: Hledání souborů na Přehraj.to (Tady parsujeme čistý text, takže pád nehrozí)
   if (mode === 'files') {
     const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
     try {
