@@ -146,79 +146,96 @@ function calculateTextSimilarity(str1, str2) {
     return intersection.size / union.size; // Jaccardův index similarity
 }
 
-// 3. Hledání plakátů na pozadí (STRIKTNÍ WHITELIST FILTR + PŘEHRAJTO FALLBACK)
+// 3. Hledání plakátů na pozadí (CZDB + IMDb Fallback + ČSFD Scraper)
 async function fetchPostersOneByOne(results) {
     for (let i = 0; i < results.length; i++) {
         const item = results[i];
         const imgElement = document.getElementById(`movie-poster-${i}`);
         if (!imgElement) continue;
 
-        // 1. Vytáhneme rok vydání z názvu (např. 2025)
+        // Najdeme kontejner s tlačítky (je to sousední div vedle divu s obrázkem)
+        const buttonsContainer = imgElement.parentElement.nextElementSibling;
+
         const yearMatch = item.title.match(/\b(19\d\d|20\d\d)\b/);
         const movieYear = yearMatch ? yearMatch[0] : '';
 
-        // 2. Vyčištění názvu od balastu z Přehraj.to
+        // VYČIŠTĚNÍ NÁZVU: Ponechává čárky, vykřičníky a otazníky pro přesný fulltext CZDB!
         let cleanTitle = item.title
             .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam|komedie|akcni|sci-fi|horor|drama|sportovni)/gi, '')
-            .replace(/[\._,\!\?\|"'\(\)\[\]\-–—]/g, ' ')
+            .replace(/[\._\|"'\(\)\[\]\-–—]/g, ' ') // Čárka, vykřičník a otazník jsou pryč z mazu
+            .replace(/\s+/g, ' ')
             .trim();
 
-        // 3. Vytvoříme pole základních slov pro whitelist
-        let whitelistWords = cleanTitle.toLowerCase()
-            .split(/\s+/)
-            .filter(word => word !== movieYear && word.length > 1);
+        let czdbData = null;
+        let imdbFallbackPoster = null;
 
-        const baseQuery = whitelistWords.slice(0, 3).join(' ');
-        const imdbQuery = movieYear ? `${baseQuery} ${movieYear}` : baseQuery;
-
-        let posterUrl = null;
-
+        // --- KROK A: První pokus na CZDB s českým názvem ---
         try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(imdbQuery)}`;
-            const imdbResponse = await fetch(imdbApiUrl);
+            const url = movieYear ? `http://api.czdb.cz?q=${encodeURIComponent(cleanTitle)}&y=${movieYear}` : `http://api.czdb.cz?q=${encodeURIComponent(cleanTitle)}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data !== false) czdbData = Array.isArray(data) ? data[0] : data;
+        } catch (e) { console.log("CZDB CZ pokus selhal nebo CORS"); }
 
-            if (imdbResponse.ok) {
-                const imdbData = await imdbResponse.json();
+        // --- KROK B: Fallback přes IMDb na Anglický název a znovu do CZDB ---
+        if (!czdbData) {
+            try {
+                const imdbRes = await fetch(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanTitle)}`);
+                const imdbData = await imdbRes.json();
                 
-                if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    for (let element of imdbData.description) {
-                        if (!element["#IMG_POSTER"]) continue;
+                if (imdbData?.description?.length > 0) {
+                    const topMatch = imdbData.description[0];
+                    const engTitle = topMatch["#TITLE"];
+                    imdbFallbackPoster = topMatch["#IMG_POSTER"]; // Uložíme jako zálohu č. 2
 
-                        const imdbTitle = (element["#TITLE"] || '').toLowerCase();
-                        const imdbYear = element["#YEAR"];
-
-                        const vsechnaSlovaSedi = whitelistWords.every(word => imdbTitle.includes(word));
-
-                        let rokSedi = true;
-                        if (movieYear && imdbYear) {
-                            rokSedi = Math.abs(parseInt(imdbYear) - parseInt(movieYear)) <= 1;
-                        }
-
-                        if (vsechnaSlovaSedi && rokSedi) {
-                            posterUrl = element["#IMG_POSTER"];
-                            break; 
-                        }
-                    }
+                    // Zkusíme CZDB podruhé, tentokrát s opraveným anglickým názvem z IMDb
+                    const urlEng = movieYear ? `http://api.czdb.cz?q=${encodeURIComponent(engTitle)}&y=${movieYear}` : `http://api.czdb.cz?q=${encodeURIComponent(engTitle)}`;
+                    const resEng = await fetch(urlEng);
+                    const dataEng = await resEng.json();
+                    if (dataEng !== false) czdbData = Array.isArray(dataEng) ? dataEng[0] : dataEng;
                 }
-            }
-        } catch (err) {
-            console.log(`Chyba vyhledávání pro: ${imdbQuery}`, err.message);
+            } catch (e) { console.log("IMDb / CZDB EN fallback selhal"); }
         }
 
-        // --- Zobrazení výsledku (Chytrý Fallback) ---
-        if (posterUrl) {
-            // A. Máme originální plakát z IMDb
-            imgElement.src = posterUrl;
-            updateFavoritePoster(item.link, posterUrl);
+        // --- KROK C: Zpracování ČSFD odkazu a tlačítka ---
+        let finalPosterUrl = null;
+
+        if (czdbData && czdbData.url) {
+            // Vložíme ČSFD tlačítko pod stávající tlačítka v kartě
+            if (buttonsContainer && !buttonsContainer.querySelector('.csfd-btn')) {
+                const csfdBtn = document.createElement('a');
+                csfdBtn.href = czdbData.url;
+                csfdBtn.target = '_blank';
+                csfdBtn.className = 'csfd-btn';
+                csfdBtn.innerText = 'ČSFD.cz';
+                // Styl přizpůsobený tvému designu
+                csfdBtn.style = 'width: 100%; padding: 6px; background: #b00; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; text-align: center; display: block; text-decoration: none; margin-top: 6px; box-sizing: border-box; transition: background 0.2s;';
+                csfdBtn.onmouseover = () => csfdBtn.style.background = '#800';
+                csfdBtn.onmouseout = () => csfdBtn.style.background = '#b00';
+                buttonsContainer.appendChild(csfdBtn);
+            }
+
+            // Zavoláme náš nový Cloudflare Pages scraper pro získání českého plakátu
+            try {
+                const scrapeRes = await fetch(`/csfd-poster?url=${encodeURIComponent(czdbData.url)}`);
+                const scrapeData = await scrapeRes.json();
+                if (scrapeData.poster) finalPosterUrl = scrapeData.poster;
+            } catch (e) { console.log("Scrapování ČSFD plakátu selhalo"); }
+        }
+
+        // --- KROK D: Finální nasazení plakátu (Hierarchie priorit) ---
+        if (finalPosterUrl) {
+            imgElement.src = finalPosterUrl; // 1. Volba: Originální český z ČSFD galerie
+            updateFavoritePoster(item.link, finalPosterUrl);
+        } else if (imdbFallbackPoster) {
+            imgElement.src = imdbFallbackPoster; // 2. Volba: Anglický z IMDb API
+            updateFavoritePoster(item.link, imdbFallbackPoster);
         } else if (item.thumbnail) {
-            // B. IMDb nic nenašlo -> Použijeme oříznutý náhled z Přehraj.to!
-            console.log(`[Fallback] IMDb selhalo, nasazuji náhled z Přehraj.to pro: ${item.title}`);
-            imgElement.src = item.thumbnail;
+            imgElement.src = item.thumbnail; // 3. Volba: Oříznuté Přehraj.to
             updateFavoritePoster(item.link, item.thumbnail);
         } else {
-            // C. Úplná nouzovka -> Žlutá klapka z Unsplashe
             if (imgElement.src !== BACKUP_POSTER_URL) {
-                imgElement.src = BACKUP_POSTER_URL;
+                imgElement.src = BACKUP_POSTER_URL; // 4. Volba: Nouzová žlutá klapka
             }
         }
     }
