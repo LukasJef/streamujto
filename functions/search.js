@@ -2,22 +2,14 @@
 async function safeFetchJson(url, headers) {
   try {
     const res = await fetch(url, { headers });
-    if (!res.ok) {
-      console.log(`Server ${url} vrátil status kód: ${res.status}`);
-      return null;
-    }
+    if (!res.ok) return null;
     
     const text = await res.text();
-    
-    // Pokud odpověď začíná znakem < (je to HTML stránka / Cloudflare block), odmítneme ji parsovat
-    if (text.trim().startsWith('<')) {
-      console.log(`Varování: URL ${url} vrátila HTML místo JSONu (pravděpodobně chybová stránka).`);
-      return null;
-    }
+    if (text.trim().startsWith('<')) return null; // Ochrana proti HTML chybovým stránkám
     
     return JSON.parse(text);
   } catch (e) {
-    console.log(`Selhal pokus o bezpečné stažení z URL ${url}:`, e.message);
+    console.log(`Chyba stahování z URL ${url}:`, e.message);
     return null;
   }
 }
@@ -41,42 +33,44 @@ export async function onRequest(context) {
     try {
       let finalResults = [];
 
-      // KROK 1: Rychlý pokus přímo přes české CZDB
+      // KROK 1: Vyhledávání přímo přes české CZDB
       const czdbData = await safeFetchJson(`http://api.czdb.cz/search?q=${encodeURIComponent(query)}`, headers);
-
-      if (czdbData && czdbData !== false) {
-        const normalized = Array.isArray(czdbData) ? czdbData : [czdbData];
-        // Odfiltrujeme případné nevalidní objekty
-        const validItems = normalized.filter(item => item && item.title);
-        
-        if (validItems.length > 0) {
-          finalResults = validItems.map(item => ({
-            id: item.imdb_id || null,
-            title: item.title,
-            originalTitle: item.title,
-            year: item.year || '',
-            poster: item.poster || null,
-            description: item.description || '',
-            url: item.url || '',
-            source: 'czdb',
-            userQuery: query
-          }));
-        }
+      
+      // Bezpečně vytáhneme pole výsledků z objektu (podle struktury "results")
+      let czdbItems = [];
+      if (czdbData && czdbData.results && Array.isArray(czdbData.results)) {
+        czdbItems = czdbData.results;
+      } else if (czdbData && Array.isArray(czdbData)) {
+        czdbItems = czdbData;
       }
 
-      // KROK 2: Pokud CZDB napřímo nic nenašlo (nebo vrátilo chybu), zkusíme IMDb zálohu
+      if (czdbItems.length > 0) {
+        // Použijeme správné české klíče: nazev, original, rok, csfd_url
+        finalResults = czdbItems.filter(item => item && (item.nazev || item.title)).map(item => ({
+          id: item.imdb_id || item.csfd_id || item.id || null,
+          title: item.nazev || item.title,
+          originalTitle: item.original || item.originalTitle || item.nazev || item.title,
+          year: item.rok || item.year || '',
+          poster: item.poster || null,
+          description: item.description || '',
+          url: item.csfd_url || item.url || '',
+          source: 'czdb',
+          userQuery: query
+        }));
+      }
+
+      // KROK 2: Pokud CZDB na přímý dotaz nic nenašlo, nastupuje IMDb fallback
       if (finalResults.length === 0) {
-        // Pokus A: Vyhledávání s původním textem
         let imdbData = await safeFetchJson(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`, headers);
 
-        // Pokus B: Pokud Pokus A nic nenašel, očistíme text od diakritiky (pro IMDb)
+        // Záloha pro IMDb: Pokud dotaz s diakritikou selhal, zkusíme to bez ní
         if (!imdbData || !imdbData.description || imdbData.description.length === 0) {
           const cleanQ = query.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
           imdbData = await safeFetchJson(`https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanQ)}`, headers);
         }
 
-        // Pokud jsme z IMDb dostali validní pole, zkusíme položky počeštit
         if (imdbData && imdbData.description && Array.isArray(imdbData.description)) {
+          // Filtrujeme položky, které mají validní #TITLE podle IMDb struktury
           const imdbItems = imdbData.description.filter(item => item && item["#TITLE"]);
 
           for (const item of imdbItems.slice(0, 6)) {
@@ -90,22 +84,30 @@ export async function onRequest(context) {
             let czdbUrl = '';
             let czdbDesc = '';
 
-            // Zpětný překlad přes CZDB (EN název + Rok)
+            // KROK 3: Vezmeme originální název z IMDb a zkusíme ho dodatečně počeštit přes CZDB
             const czCheckUrl = year 
               ? `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}&y=${year}`
               : `http://api.czdb.cz/search?q=${encodeURIComponent(engTitle)}`;
             
             const czCheckData = await safeFetchJson(czCheckUrl, headers);
+            
+            let czCheckItems = [];
+            if (czCheckData && czCheckData.results && Array.isArray(czCheckData.results)) {
+              czCheckItems = czCheckData.results;
+            } else if (czCheckData && Array.isArray(czCheckData)) {
+              czCheckItems = czCheckData;
+            }
 
-            if (czCheckData && czCheckData !== false) {
-              const single = Array.isArray(czCheckData) ? czCheckData[0] : czCheckData;
-              if (single && single.title) {
-                czechTitle = single.title;
-                czdbUrl = single.url || '';
+            if (czCheckItems.length > 0) {
+              const single = czCheckItems[0];
+              if (single && (single.nazev || single.title)) {
+                czechTitle = single.nazev || single.title;
+                czdbUrl = single.csfd_url || single.url || '';
                 czdbDesc = single.description || '';
               }
             }
 
+            // KROK 4: Pokud počeštění přes originální název nevyšlo, data zůstanou v EN z IMDb (fallback)
             finalResults.push({
               id: imdbId,
               title: czechTitle, 
@@ -114,7 +116,7 @@ export async function onRequest(context) {
               poster: imdbPoster || null,
               actors: actors || '',
               description: czdbDesc,
-              url: czdbUrl,
+              url: czdbUrl || (imdbId ? `https://www.imdb.com/title/${imdbId}` : ''),
               source: 'imdb',
               userQuery: query
             });
@@ -122,7 +124,6 @@ export async function onRequest(context) {
         }
       }
 
-      // Vždy vrátíme čistou JSON odpověď, i kdyby byla prázdná
       return new Response(JSON.stringify({ results: finalResults }), {
         headers: { 
           'Content-Type': 'application/json', 
@@ -131,15 +132,14 @@ export async function onRequest(context) {
       });
 
     } catch (err) {
-      // Globální záchranná síť
-      return new Response(JSON.stringify({ error: "Interní chyba serveru: " + err.message, results: [] }), { 
+      return new Response(JSON.stringify({ error: "Interní chyba: " + err.message, results: [] }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
     }
   }
 
-  // REŽIM 2: Hledání souborů na Přehraj.to (Tady parsujeme čistý text, takže pád nehrozí)
+  // REŽIM 2: Hledání souborů na Přehraj.to
   if (mode === 'files') {
     const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
     try {
