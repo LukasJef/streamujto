@@ -4,13 +4,12 @@ const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
 
 let currentFilesList = [];
-let trailerPlayer = null; // Pro Youtube Iframe API
 let trailerMuted = true;
 
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') searchMovies(); });
 document.addEventListener('DOMContentLoaded', () => { updateCacheMenuLists(); });
 
-// 1. VYHLEDÁNÍ ČISTÝCH FILMŮ (Z IMDb entit)
+// 1. VYHLEDÁNÍ ČISTÝCH FILMŮ
 async function searchMovies() {
     const query = searchInput.value.trim();
     if (!query) return;
@@ -51,7 +50,7 @@ function renderMovieGrid(movies) {
     });
 }
 
-// 3. FLIPPED PROCES VYHLEDÁVÁNÍ DATA & DETAIL FILMU
+// 3. OTEVŘENÍ DETAILU FILMU
 async function openMovieDetail(movie) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     const detailView = document.getElementById('movieDetailView');
@@ -59,73 +58,54 @@ async function openMovieDetail(movie) {
     resultsDiv.style.display = 'none';
     detailView.style.display = 'block';
 
-    // Výchozí vizuály z IMDb
+    // Aplikace vizuálů a textů (které už backend kompletně připravil a počeštil!)
     document.getElementById('detailBillboard').style.backgroundImage = `url('${movie.poster}')`;
     document.getElementById('detailTitle').innerText = movie.title;
     document.getElementById('detailMetaRow').innerText = movie.year ? `Rok: ${movie.year}` : '';
     document.getElementById('detailCrewRow').innerHTML = movie.actors ? `<strong>Hrají:</strong> ${movie.actors}` : '';
-    document.getElementById('detailDescription').innerText = 'Načítám detaily filmu a české streamy...';
+    document.getElementById('detailDescription').innerText = movie.description || "Popis filmu se načítá nebo není k dispozici.";
 
-    // Nastavení tlačítek
+    // Zobrazení tlačítek ČSFD / IMDb na základě dostupnosti dat
     setupLinkButton('imdbLinkBtn', movie.id ? `https://www.imdb.com/title/${movie.id}` : null);
-    setupLinkButton('csfdLinkBtn', null); // zatím skryté
-
-    // Správa oblíbených položek uvnitř detailu
-    const favBtn = document.getElementById('detailFavBtn');
-    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-    const isFav = favorites.some(f => f.id === movie.id);
-    favBtn.innerText = isFav ? '★' : '+';
-    favBtn.onclick = () => {
-        let favs = JSON.parse(localStorage.getItem('favorites')) || [];
-        const idx = favs.findIndex(f => f.id === movie.id);
-        if (idx > -1) { favs.splice(idx, 1); favBtn.innerText = '+'; }
-        else { favs.push({ id: movie.id, title: movie.title, poster: movie.poster, year: movie.year }); favBtn.innerText = '★'; }
-        localStorage.setItem('favorites', JSON.stringify(favs));
-        updateCacheMenuLists();
-    };
-
-    let czdbData = null;
-    let searchTitle = movie.title;
-
-    // A. Pokus CZDB s primárním názvem
-    try {
-        let czdbRes = await fetch(`https://api.czdb.cz?q=${encodeURIComponent(searchTitle)}`);
-        let data = await czdbRes.json();
-        if (data !== false) czdbData = Array.isArray(data) ? data[0] : data;
-    } catch(e){}
-
-    // B. Druhý pokus s rokem, pokud první selhal
-    if (!czdbData && movie.year) {
-        try {
-            let czdbRes = await fetch(`https://api.czdb.cz?q=${encodeURIComponent(searchTitle)}&y=${movie.year}`);
-            let data = await czdbRes.json();
-            if (data !== false) czdbData = Array.isArray(data) ? data[0] : data;
-        } catch(e){}
+    
+    let csfdUrl = movie.url;
+    if (!csfdUrl && movie.id) {
+        // Geniální vyhledávací link na ČSFD přes IMDb ID jako záloha
+        csfdUrl = `https://www.csfd.cz/podrobne-vyhledavani/zadej-imdb/?imdb=${movie.id}`;
     }
+    setupLinkButton('csfdLinkBtn', csfdUrl);
 
-    // C. Aplikace nalezených metadat z CZDB/ČSFD
-    if (czdbData && czdbData.url) {
-        setupLinkButton('csfdLinkBtn', czdbData.url);
-        
-        // Pokus o stažení popisku a českého plakátu přes náš scraper
+    // Pokud máme ČSFD URL, pokusíme se asynchronně dotáhnout ještě hezčí český plakát z galerie
+    if (movie.url) {
         try {
-            let csfdScrape = await fetch(`/csfd-poster?url=${encodeURIComponent(czdbData.url)}`);
+            let csfdScrape = await fetch(`/csfd-poster?url=${encodeURIComponent(movie.url)}`);
             let scrapeData = await csfdScrape.json();
             if (scrapeData.poster) document.getElementById('detailBillboard').style.backgroundImage = `url('${scrapeData.poster}')`;
         } catch(e){}
     }
 
-    // Pokud chybí CZDB popisek, necháme prázdno nebo IMDb fallback text
-    document.getElementById('detailDescription').innerText = czdbData?.description || "Popis filmu nebyl nalezen.";
+    // Správa oblíbených položek uvnitř detailu
+    const favBtn = document.getElementById('detailFavBtn');
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    const isFav = favorites.some(f => f.title === movie.title);
+    favBtn.innerText = isFav ? '★' : '+';
+    favBtn.onclick = () => {
+        let favs = JSON.parse(localStorage.getItem('favorites')) || [];
+        const idx = favs.findIndex(f => f.title === movie.title);
+        if (idx > -1) { favs.splice(idx, 1); favBtn.innerText = '+'; }
+        else { favs.push({ id: movie.id, title: movie.title, poster: movie.poster, year: movie.year, description: movie.description, url: movie.url, actors: movie.actors, originalTitle: movie.originalTitle }); favBtn.innerText = '★'; }
+        localStorage.setItem('favorites', JSON.stringify(favs));
+        updateCacheMenuLists();
+    };
 
-    // NAČTENÍ SOUBORŮ Z PŘEHRAJ.TO NA POZADÍ (Podle názvu z CZDB nebo IMDb)
-    loadSourceFiles(czdbData?.title || movie.title);
+    // POUŽITÍ ČESKÉHO NÁZVU PRO VYHLEDÁVÁNÍ SOUBORŮ NA PŘEHRAJ.TO
+    loadSourceFiles(movie.title);
 
-    // NAČTENÍ TRAILERU Z YOUTUBE EMBED
-    loadTrailerEmbed(movie.title);
+    // SPOUŠTĚNÍ TRAILERU PODLE ORIGINÁLNÍHO NÁZVU (Pro maximální přesnost na YouTube)
+    loadTrailerEmbed(movie.originalTitle || movie.title);
 }
 
-// 4. ASYNCHRONNÍ ZÍSKÁNÍ SOUBORŮ PRO DROPDOWNY
+// 4. NAČTENÍ SOUBORŮ DO DROPDOWNŮ
 async function loadSourceFiles(searchQuery) {
     const streamSel = document.getElementById('streamSelector');
     const downSel = document.getElementById('downloadSelector');
@@ -143,19 +123,18 @@ async function loadSourceFiles(searchQuery) {
             return;
         }
 
-        // Naplnění výběrových boxů vyčištěnými názvy velikostí souborů
+        // Zkrácení názvů souborů pro čistý vzhled selektoru
         const optionsHtml = currentFilesList.map((file, idx) => 
-            `<option value="${idx}">${file.title.slice(0, 30)}... (${file.size || file.duration})</option>`
+            `<option value="${idx}">${file.title.slice(0, 45)}... (${file.size || file.duration})</option>`
         ).join('');
 
         streamSel.innerHTML = optionsHtml;
         downSel.innerHTML = optionsHtml;
     } catch (e) {
-        streamSel.innerHTML = '<option>Chyba načítání streamů</option>';
+        streamSel.innerHTML = '<option>Chyba načítání</option>';
     }
 }
 
-// OVLÁDÁNÍ AKCÍ (Přehrát / Stáhnout)
 function syncSelectedStream() {
     document.getElementById('downloadSelector').value = document.getElementById('streamSelector').value;
 }
@@ -168,8 +147,7 @@ async function playSelectedFile() {
     playerContainer.style.display = 'block';
     videoPlayer.src = '';
     
-    // Stop traileru při spuštění filmu
-    if (trailerPlayer) trailerPlayer.innerHTML = '';
+    document.getElementById('trailerEmbedContainer').innerHTML = ''; // Zastaví trailer na pozadí při startu videa
 
     try {
         const res = await fetch(`/get-video?url=${encodeURIComponent(file.link)}`);
@@ -178,7 +156,6 @@ async function playSelectedFile() {
             videoPlayer.src = data.sources[0].file;
             videoPlayer.load();
             videoPlayer.play();
-            window.removeAttribute('watchHistory'); // Integrace stávající rozkoukanosti...
         }
     } catch(e) { alert('Stream se nepodařilo inicializovat.'); }
 }
@@ -197,22 +174,19 @@ async function downloadSelectedFile() {
     } catch(e){}
 }
 
-// TRAILER Z YOUTUBE
+// 5. YOUTUBE TRAILER POMOCÍ BEZPEČNÉHO IFRAME SEARCH PROFILU
 function loadTrailerEmbed(title) {
     const container = document.getElementById('trailerEmbedContainer');
-    // Vytvoříme jednoduchý bezpečný YouTube Embed hledající trailer
     container.innerHTML = `
         <iframe width="100%" height="100%" 
-            src="https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(title + ' official trailer')}&autoplay=1&mute=1&controls=0&loop=1&playlist=" 
-            frameborder="0" allow="autoplay; encrypted-media" style="transform: scale(1.35); width: 100%; height: 100%;">
+            src="https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(title + ' official trailer')}&autoplay=1&mute=1&controls=0&loop=1" 
+            frameborder="0" allow="autoplay; encrypted-media" style="transform: scale(1.4); width: 100%; height: 100%;">
         </iframe>`;
     trailerMuted = true;
     document.getElementById('detailSoundBtn').innerText = '🔇';
 }
 
 function toggleTrailerMute() {
-    // Vzhledem k tomu, že čistý iframe bez API nelze snadno zvenčí odmutovat bez načtení skriptů, 
-    // přepínáme zvuk jednoduchým reloadem s parametrem mute=0 / mute=1 pro maximální spolehlivost
     const iframe = document.getElementById('trailerEmbedContainer').querySelector('iframe');
     if (!iframe) return;
     
@@ -243,7 +217,6 @@ function toggleCacheMenu() {
     menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
 }
 
-// AKTUALIZACE OBLÍBENÝCH A ROZKOUKANÝCH PRO HLAVNÍ STRÁNKU (Hvězdička)
 function updateCacheMenuLists() {
     const favList = document.getElementById('favoritesList');
     if (!favList) return;
@@ -253,7 +226,7 @@ function updateCacheMenuLists() {
         favList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádné oblíbené filmy.</p>';
     } else {
         favList.innerHTML = favorites.map(item => `
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="closeMovieDetail(); openMovieDetail({id:'${item.id}', title:'${item.title}', poster:'${item.poster}', year:'${item.year}'})">
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="closeMovieDetail(); openMovieDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
                 <img src="${item.poster}" style="width:35px; height:50px; object-fit:cover; border-radius:2px;">
                 <div style="flex:1; font-size:12px; font-weight:bold; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
             </div>
