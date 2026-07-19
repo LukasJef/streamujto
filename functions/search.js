@@ -16,71 +16,69 @@ export async function onRequest(context) {
   const CZDB_API = `https://api.czdb.cz/search?q=${encodeURIComponent(query)}`;
   const IMDB_API = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
 
-  let finalResults = [];
-
   try {
-    // KROK 1: Vyhledáme film na CZDB (ČSFD) podle přesné struktury results
-    let czdbRes = await fetch(CZDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    let czdbData = czdbRes.ok ? await czdbRes.json() : null;
+    // Spuštění obou dotazů současně pro maximální rychlost
+    const [czdbRes, imdbRes] = await Promise.all([
+      fetch(CZDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null),
+      fetch(IMDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null)
+    ]);
 
-    if (czdbData && czdbData.results && czdbData.results.length > 0) {
-      finalResults = normalizeCzdb(czdbData.results, 'csfd');
-    } else {
-      // KROK 2: Nic nevychází -> Vyhledáme na iamidiot (IMDb API)
-      let imdbRes = await fetch(IMDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      let imdbData = imdbRes.ok ? await imdbRes.json() : null;
+    const czdbData = czdbRes && czdbRes.ok ? await czdbRes.json() : null;
+    const imdbData = imdbRes && imdbRes.ok ? await imdbRes.json() : null;
 
-      if (imdbData && imdbData.description && imdbData.description.length > 0) {
-        // KROK 3: Vezmeme originální název z prvního zápisu a zkusíme ho poslat zpět do CZDB
-        const origTitle = imdbData.description[0]["#TITLE"] || imdbData.description[0]["#AKA"];
-        
-        if (origTitle) {
-          let retryCzdbRes = await fetch(`https://api.czdb.cz/search?q=${encodeURIComponent(origTitle)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-          let retryCzdbData = retryCzdbRes.ok ? await retryCzdbRes.json() : null;
-          
-          if (retryCzdbData && retryCzdbData.results && retryCzdbData.results.length > 0) {
-            finalResults = normalizeCzdb(retryCzdbData.results, 'both');
-          }
-        }
+    const czdbResults = czdbData && czdbData.results ? czdbData.results : [];
+    const imdbResults = imdbData && imdbData.description ? imdbData.description : [];
 
-        // KROK 4: Pokud CZDB po 4. kroku stále nevychází, IMDb poslouží jako kompletní fallback
-        if (finalResults.length === 0) {
-          finalResults = normalizeImdb(imdbData.description, 'imdb');
-        }
+    let finalResults = [];
+
+    // Pomocná funkce pro normalizaci textu při porovnávání shod
+    const normalizeStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // KROK 1 & 2: Projdeme ČSFD výsledky a zkusíme k nim z IMDb naráz napárovat plakát a ID
+    czdbResults.forEach(czItem => {
+      const match = imdbResults.find(imItem => {
+        const sameYear = Math.abs(Number(czItem.rok) - Number(imItem["#YEAR"])) <= 1;
+        const sameTitle = normalizeStr(czItem.original) === normalizeStr(imItem["#TITLE"]) ||
+                            normalizeStr(czItem.nazev) === normalizeStr(imItem["#TITLE"]) ||
+                            normalizeStr(czItem.alt_nazev).includes(normalizeStr(imItem["#TITLE"]));
+        return sameYear && sameTitle;
+      });
+
+      finalResults.push({
+        id: String(czItem.csfd_id || czItem.id),
+        title: czItem.nazev,
+        originalTitle: czItem.original || (match ? match["#TITLE"] : ''),
+        year: czItem.rok || (match ? match["#YEAR"] : '---'),
+        // Pokud najde shodu, vezme IMDb plakát okamžitě jako primární podklad
+        poster: match ? match["#IMG_POSTER"] : '', 
+        actors: match ? match["#ACTORS"] : '',
+        source: match ? 'both' : 'csfd',
+        imdbLink: match ? (match["#IMDB_URL"] || `https://www.imdb.com/title/${match["#IMDB_ID"]}`) : null,
+        csfdLink: czItem.csfd_url || `https://www.csfd.cz/film/${czItem.csfd_id}`
+      });
+    });
+
+    // KROK 3: Pokud zbyla nějaká exkluzivní data na IMDb, která ČSFD vůbec nezná, přidáme je samostatně
+    imdbResults.forEach(imItem => {
+      const isAlreadyAdded = finalResults.some(f => f.imdbLink && f.imdbLink.includes(imItem["#IMDB_ID"]));
+      if (!isAlreadyAdded) {
+        finalResults.push({
+          id: imItem["#IMDB_ID"] || Math.random().toString(),
+          title: imItem["#TITLE"] || imItem["#AKA"] || "Neznámý název",
+          originalTitle: imItem["#TITLE"] || '',
+          year: imItem["#YEAR"] || '---',
+          poster: imItem["#IMG_POSTER"] || '',
+          actors: imItem["#ACTORS"] || '',
+          source: 'imdb',
+          imdbLink: imItem["#IMDB_URL"] || `https://www.imdb.com/title/${imItem["#IMDB_ID"]}`,
+          csfdLink: null
+        });
       }
-    }
+    });
 
-    return new Response(JSON.stringify({ results: finalResults }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ results: finalResults.slice(0, 14) }), { headers: corsHeaders });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
   }
-}
-
-function normalizeCzdb(items, source) {
-  return items.map(item => ({
-    id: String(item.csfd_id || item.id),
-    title: item.nazev,
-    originalTitle: item.original || '',
-    year: item.rok || '---',
-    poster: '', 
-    actors: '',
-    source: source,
-    imdbLink: null,
-    csfdLink: item.csfd_url || `https://www.csfd.cz/film/${item.csfd_id}`
-  })).slice(0, 12);
-}
-
-function normalizeImdb(items, source) {
-  return items.map(item => ({
-    id: item["#IMDB_ID"] || Math.random().toString(),
-    title: item["#TITLE"] || item["#AKA"] || "Neznámý název",
-    originalTitle: item["#TITLE"] || '',
-    year: item["#YEAR"] || '---',
-    poster: item["#IMG_POSTER"] || '',
-    actors: item["#ACTORS"] || '',
-    source: source,
-    imdbLink: item["#IMDB_URL"] || `https://www.imdb.com/title/${item["#IMDB_ID"]}`,
-    csfdLink: null
-  })).slice(0, 12);
 }
