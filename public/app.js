@@ -1,26 +1,47 @@
 const searchInput = document.getElementById('searchQuery');
+const resultsContainer = document.getElementById('resultsContainer');
 const resultsDiv = document.getElementById('results');
 const movieDetail = document.getElementById('movieDetail');
 const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
+const libraryContainer = document.getElementById('libraryContainer');
+const resumeToast = document.getElementById('resumeToast');
 
 let activeStreams = [];
 let currentMovieData = null;
 
-const BACKUP_POSTER_URL = 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=300&auto=format&fit=crop';
+const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&auto=format&fit=crop';
+
+// Spuštění po načtení stránky
+window.addEventListener('DOMContentLoaded', () => {
+    loadLibrary();
+    setupPositionTracker();
+});
 
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') search();
 });
 
+function showMainPage() {
+    movieDetail.style.display = 'none';
+    playerContainer.style.display = 'none';
+    videoPlayer.pause();
+    resultsContainer.style.display = 'none';
+    libraryContainer.style.display = 'block';
+    loadLibrary();
+}
+
 async function search() {
     const query = searchInput.value.trim();
     if (!query) return;
 
-    resultsDiv.innerHTML = '<div class="loader">Vyhledávám film v databázích...</div>';
+    libraryContainer.style.display = 'none';
     movieDetail.style.display = 'none';
     playerContainer.style.display = 'none';
     videoPlayer.pause();
+    
+    resultsContainer.style.display = 'block';
+    resultsDiv.innerHTML = '<div class="loader">Prohledávám filmové databáze...</div>';
 
     try {
         const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
@@ -31,64 +52,93 @@ async function search() {
             return;
         }
 
-        renderGrid(data.results);
+        renderGrid(data.results, resultsDiv, true);
     } catch (err) {
         resultsDiv.innerHTML = '<div class="error">Chyba sítě při vyhledávání.</div>';
     }
 }
 
-function renderGrid(movies) {
-    resultsDiv.innerHTML = '';
-    resultsDiv.className = "movie-grid";
+// Vykreslení mřížky karet s líným asynchronním načítáním plakátů pro CZDB
+function renderGrid(movies, targetElement, lazyLoadPosters = false) {
+    targetElement.innerHTML = '';
 
     movies.forEach(movie => {
         const card = document.createElement('div');
         card.className = "movie-card";
+        card.id = `card-${btoa(encodeURIComponent(movie.title)).replace(/=/g, '')}`;
         card.onclick = () => openMovieDetail(movie);
 
+        // Zkontrolujeme, jestli máme uloženou pozici pro progress bar
+        const progress = getWatchProgress(movie.title);
+        let progressBarHtml = '';
+        if (progress && progress.percent > 1) {
+            progressBarHtml = `
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: ${progress.percent}%"></div>
+                </div>
+            `;
+        }
+
         card.innerHTML = `
-            <img src="${movie.poster || BACKUP_POSTER_URL}" referrerpolicy="no-referrer" onerror="this.src='${BACKUP_POSTER_URL}';">
-            <h3>${movie.title}</h3>
-            <p>${movie.year}</p>
+            <img id="img-${card.id}" src="${movie.poster || FALLBACK_POSTER}" referrerpolicy="no-referrer">
+            <div class="card-info">
+                <h3>${movie.title}</h3>
+                <p>${movie.year}</p>
+            </div>
+            ${progressBarHtml}
         `;
-        resultsDiv.appendChild(card);
+        targetElement.appendChild(card);
+
+        // ASYNCHRONNÍ SOSÁNÍ PLAKÁTŮ: Pokud CZDB nevrátila plakát, na pozadí ho dočteme z detailu
+        if (lazyLoadPosters && !movie.poster && movie.csfdLink) {
+            fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`)
+                .then(res => res.json())
+                .then(details => {
+                    if (details.poster) {
+                        movie.poster = details.poster;
+                        const imgEl = document.getElementById(`img-${card.id}`);
+                        if (imgEl) imgEl.src = details.poster;
+                    }
+                }).catch(() => {});
+        }
     });
 }
 
 async function openMovieDetail(movie) {
     currentMovieData = movie;
-    resultsDiv.innerHTML = '<div class="loader">Stahuji filmové detaily z ČSFD/IMDb a hledám streamy...</div>';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     
-    activeStreams = [];
+    // Zobrazíme loader uvnitř detailu pro plynulý přechod
+    movieDetail.style.display = 'block';
+    document.getElementById('detailContent').innerHTML = '<div class="loader">Sosám data z ČSFD/IMDb a připravuji streamy...</div>';
+    movieDetail.style.backgroundImage = 'none';
 
     try {
-        // Souběžné získání detailů z ČSFD a streamů z Přehraj.to
-        let deepDetails = { poster: movie.poster, description: 'Popis není k dispozici.', actors: movie.actors, genres: 'Film', trailerUrl: '' };
+        let deepDetails = { poster: movie.poster, description: 'Popis filmu se připravuje.', actors: movie.actors, genres: 'Film', trailerUrl: '' };
         
         if (movie.csfdLink) {
             try {
                 const detailRes = await fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`);
                 if (detailRes.ok) deepDetails = await detailRes.json();
-            } catch (e) { console.log("Nepodařilo se načíst detailní data z ČSFD parseru."); }
+            } catch (e) { console.log("Selhal scraper hloubkových detailů."); }
         }
 
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
         const streamData = await streamRes.json();
         activeStreams = streamData.streams || [];
 
-        // Aktualizace objektu filmu o čerstvě získaná data
-        currentMovieData.poster = deepDetails.poster || movie.poster || BACKUP_POSTER_URL;
+        // Obohacení dat filmu o stažené položky
+        currentMovieData.poster = deepDetails.poster || movie.poster || FALLBACK_POSTER;
         currentMovieData.description = deepDetails.description;
         currentMovieData.actors = deepDetails.actors || movie.actors;
         currentMovieData.genres = deepDetails.genres;
 
-        resultsDiv.innerHTML = '';
-        movieDetail.style.display = 'block';
+        // Vykreslení velkého filmového pozadí podle A24 specifikace
+        movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 10%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.8) 100%), url('${currentMovieData.poster}')`;
 
-        // Tvorba tlačítek podle toho, zda ČSFD/IMDb prošlo přes 4-krokový filtr
         let dbButtons = '';
         if (movie.source === 'csfd' || movie.source === 'both') {
-            dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-link-logo"><img src="https://www.csfd.cz/favicon.ico" style="width:24px;height:24px;vertical-align:middle;margin-right:5px;"> ČSFD</a>`;
+            dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-btn-csfd">ČSFD</a>`;
         }
         if (movie.source === 'imdb' || movie.source === 'both') {
             dbButtons += `<a href="${movie.imdbLink || ('https://www.imdb.com/find?q='+encodeURIComponent(movie.title))}" target="_blank" class="db-btn-imdb">IMDb</a>`;
@@ -97,20 +147,21 @@ async function openMovieDetail(movie) {
         let streamDropdownHtml = '';
         if (activeStreams.length > 0) {
             streamDropdownHtml = `
-                <select id="streamSelect" class="context-arrow">
-                    ${activeStreams.map((s, idx) => `<option value="${idx}">${s.name}</option>`).join('')}
-                </select>
+                <div class="context-select-wrapper">
+                    <select id="streamSelect" class="context-arrow">
+                        ${activeStreams.map((s, idx) => `<option value="${idx}">${s.name}</option>`).join('')}
+                    </select>
+                </div>
             `;
         } else {
-            streamDropdownHtml = `<span class="no-streams-notice">Žádný kompatibilní stream (S01E01 odfiltrováno)</span>`;
+            streamDropdownHtml = `<span style="color:var(--text-dim);font-size:14px;">Žádný filmový stream nenalezen</span>`;
         }
 
         const isFav = isMovieInFavorites(movie.title);
 
         document.getElementById('detailContent').innerHTML = `
-            <!-- Video Trailer na pozadí karty filmu -->
             ${deepDetails.trailerUrl ? `
-                <video id="bgTrailerVideo" autoplay loop muted playsinline style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:-1; opacity:0.3;">
+                <video id="bgTrailerVideo" autoplay loop muted playsinline style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:-1; opacity:0.25;">
                     <source src="${deepDetails.trailerUrl}" type="video/mp4">
                 </video>
             ` : ''}
@@ -133,18 +184,21 @@ async function openMovieDetail(movie) {
 
             <div class="meta-layout">
                 <div class="meta-left">
-                    <p style="color:var(--accent); font-weight:bold;">${deepDetails.genres}</p>
-                    <p><strong>Země a Rok:</strong> ${movie.year} • 110 min</p>
-                    <p style="font-size:13px; color:var(--text-dim); line-height:1.5;">${deepDetails.description}</p>
+                    <p style="color:var(--accent); font-weight:bold; font-size:18px; margin-bottom:10px;">${deepDetails.genres}</p>
+                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year} • <strong>Zdroj:</strong> ${movie.source.toUpperCase()}</p>
+                    <p style="color:var(--text-dim); line-height:1.6; font-size:15px;">${deepDetails.description}</p>
                 </div>
                 <div class="meta-right">
-                    <p><strong>Režie & Hrají:</strong> ${deepDetails.actors || 'Neznámé obsazení.'}</p>
+                    <p><strong>Obsazení a tvorba:</strong><br><span style="color:var(--text-dim); font-size:14px;">${deepDetails.actors || 'Neznámé.'}</span></p>
                 </div>
             </div>
         `;
 
+        // Uložit do historie (Knihovny), že si kartu otevřel
+        addToHistory(currentMovieData);
+
     } catch (err) {
-        resultsDiv.innerHTML = '<div class="error">Chyba při sestavování filmové karty.</div>';
+        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při stahování detailu z ČSFD.</div>';
     }
 }
 
@@ -163,6 +217,14 @@ function startStreaming() {
             if (data.sources?.[0]?.file) {
                 videoPlayer.src = data.sources[0].file;
                 videoPlayer.load();
+                
+                // SKOK NA POZICI (RESUME): Pokud už film hrál, vrátíme se zpět
+                const savedProgress = getWatchProgress(currentMovieData.title);
+                if (savedProgress && savedProgress.time > 5) {
+                    videoPlayer.currentTime = savedProgress.time;
+                    showResumeToast();
+                }
+                
                 videoPlayer.play();
             }
         });
@@ -184,6 +246,54 @@ function startDownloading() {
                 a.click();
             }
         });
+}
+
+/* KNIHOVNA & ROZKOUKANÉ POZICE LOGIKA */
+
+function setupPositionTracker() {
+    // Každé 2 vteřiny uložíme aktuální pozici filmu do localStorage
+    videoPlayer.addEventListener('timeupdate', () => {
+        if (!currentMovieData || videoPlayer.duration === 0) return;
+        
+        const progress = {
+            time: videoPlayer.currentTime,
+            percent: (videoPlayer.currentTime / videoPlayer.duration) * 100
+        };
+        
+        localStorage.setItem(`progress_${currentMovieData.title}`, JSON.stringify(progress));
+    });
+}
+
+function getWatchProgress(title) {
+    const data = localStorage.getItem(`progress_${title}`);
+    return data ? JSON.parse(data) : null;
+}
+
+function showResumeToast() {
+    resumeToast.style.display = 'block';
+    setTimeout(() => { resumeToast.style.display = 'none'; }, 4000);
+}
+
+function loadLibrary() {
+    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+    let history = JSON.parse(localStorage.getItem('watch_history')) || [];
+
+    const favGrid = document.getElementById('favoritesGrid');
+    const histGrid = document.getElementById('historyGrid');
+
+    if (favorites.length === 0) favGrid.innerHTML = '<div style="color:var(--text-dim); padding:10px;">Žádné oblíbené filmy.</div>';
+    else renderGrid(favorites, favGrid, false);
+
+    if (history.length === 0) histGrid.innerHTML = '<div style="color:var(--text-dim); padding:10px;">Žádná historie sledování.</div>';
+    else renderGrid(history, histGrid, false);
+}
+
+function addToHistory(movie) {
+    let history = JSON.parse(localStorage.getItem('watch_history')) || [];
+    // Odstraníme duplicitu, aby byl film na začátku
+    history = history.filter(h => h.title !== movie.title);
+    history.unshift(movie);
+    localStorage.setItem('watch_history', JSON.stringify(history.slice(0, 12))); // Max 12 záznamů
 }
 
 function isMovieInFavorites(title) {
