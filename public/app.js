@@ -1,44 +1,25 @@
 const searchInput = document.getElementById('searchQuery');
 const resultsDiv = document.getElementById('results');
+const movieDetail = document.getElementById('movieDetail');
 const playerContainer = document.getElementById('playerContainer');
 const videoPlayer = document.getElementById('videoPlayer');
 
-let currentVideoId = null;
-let currentVideoTitle = null;
-let currentVideoPoster = null;
+let activeStreams = [];
+let selectedStreamIndex = 0;
+let currentMovieData = null;
 
 const BACKUP_POSTER_URL = 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=300&auto=format&fit=crop';
 
 searchInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        search();
-    }
+    if (e.key === 'Enter') search();
 });
-
-document.addEventListener('DOMContentLoaded', () => {
-    updateCacheMenuLists();
-    
-    setInterval(() => {
-        if (videoPlayer && !videoPlayer.paused && currentVideoId) {
-            saveVideoProgress(currentVideoId, currentVideoTitle, currentVideoPoster, videoPlayer.currentTime);
-        }
-    }, 5000);
-});
-
-function jeToValidniFilm(title) {
-    const lowerTitle = title.toLowerCase();
-    const zakazanaSlova = [
-        'gameplay', 'letsplay', 'let\'s play', 'walkthrough', 'tutorial', 
-        'navod', 'návod', 'soundtrack', 'ost', 'trailer', 'teaser', 'game'
-    ];
-    return !zakazanaSlova.some(slovo => lowerTitle.includes(slovo));
-}
 
 async function search() {
     const query = searchInput.value.trim();
     if (!query) return;
 
-    resultsDiv.innerHTML = '<div class="loader">Hledám filmy na Přehraj.to...</div>';
+    resultsDiv.innerHTML = '<div class="loader">Hledám filmy v databázích...</div>';
+    movieDetail.style.display = 'none';
     playerContainer.style.display = 'none';
     videoPlayer.pause();
 
@@ -46,342 +27,167 @@ async function search() {
         const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
         const data = await response.json();
 
-        if (data.error) {
-            resultsDiv.innerHTML = `<div class="error">Chyba: ${data.error}</div>`;
+        if (data.error || !data.results || data.results.length === 0) {
+            resultsDiv.innerHTML = '<div class="no-results">Nebylo nic nalezeno.</div>';
             return;
         }
 
-        if (!data.results || data.results.length === 0) {
-            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné výsledky.</div>';
-            return;
-        }
-
-        let prefiltrovaneVysledky = data.results.filter(item => jeToValidniFilm(item.title));
-
-        // CHYTRÉ ŘAZENÍ: Vytáhneme rok z názvu a seřadíme výsledky od nejnovějšího po nejstarší
-        prefiltrovaneVysledky.sort((a, b) => {
-            const rokA = a.title.match(/(19\d\d|20\d\d)/)?.[0] || 0;
-            const rokB = b.title.match(/(19\d\d|20\d\d)/)?.[0] || 0;
-            return rokB - rokA; 
-        });
-
-        const top12Results = prefiltrovaneVysledky.slice(0, 12);
-
-        if (top12Results.length === 0) {
-            resultsDiv.innerHTML = '<div class="no-results">Nebyly nalezeny žádné filmové výsledky.</div>';
-            return;
-        }
-
-        renderResults(top12Results);
-        fetchPostersOneByOne(top12Results);
-
+        renderGrid(data.results);
     } catch (err) {
-        resultsDiv.innerHTML = '<div class="error">Chyba sítě nebo serveru.</div>';
-        console.error(err);
+        resultsDiv.innerHTML = '<div class="error">Chyba sítě při vyhledávání.</div>';
     }
 }
 
-function renderResults(results) {
+function renderGrid(movies) {
     resultsDiv.innerHTML = '';
-    
-    resultsDiv.style.display = "flex";
-    resultsDiv.style.flexWrap = "wrap";
-    resultsDiv.style.gap = "20px";
-    resultsDiv.style.justifyContent = "center";
-    resultsDiv.style.padding = "20px 0";
-    
-    results.forEach((item, index) => {
-        const card = document.createElement('div');
-        card.style.width = "180px";
-        card.style.backgroundColor = "var(--card-bg)";
-        card.style.padding = "12px";
-        card.style.borderRadius = "6px";
-        card.style.boxSizing = "border-box";
-        card.style.display = "flex";
-        card.style.flexDirection = "column";
-        card.style.justifyContent = "space-between";
-        card.style.boxShadow = "0 4px 6px rgba(0,0,0,0.2)";
-        card.style.position = "relative";
+    resultsDiv.className = "movie-grid";
 
-        const isFav = isFavorite(item.link);
+    movies.forEach(movie => {
+        const card = document.createElement('div');
+        card.className = "movie-card";
+        card.onclick = () => openMovieDetail(movie);
 
         card.innerHTML = `
-            <button id="fav-btn-${index}" onclick="toggleFavorite('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src, ${index})" 
-                    style="position: absolute; top: 18px; right: 18px; background: rgba(0,0,0,0.7); border: none; color: ${isFav ? '#ffca28' : '#fff'}; font-size: 18px; padding: 5px 8px; border-radius: 4px; cursor: pointer; z-index: 10;">
-                ${isFav ? '★' : '☆'}
-            </button>
-
-            <div>
-                <img id="movie-poster-${index}" src="${BACKUP_POSTER_URL}" 
-                     onerror="this.onerror=null; this.src='${BACKUP_POSTER_URL}';"
-                     style="width: 100%; height: 240px; object-fit: cover; border-radius: 4px; background-color: #000; display: block; margin-bottom: 10px;" referrerpolicy="no-referrer">
-                <h3 style="font-size: 14px; margin: 0 0 6px 0; color: var(--text); line-height: 1.3; max-height: 36px; overflow: hidden; text-align: left;">${item.title}</h3>
-                <p style="font-size: 11px; color: var(--text-dim); margin: 0 0 12px 0; text-align: left;">${item.size || item.duration || 'Video'}</p>
-            </div>
-            <div>
-                <button class="play-btn" style="width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 6px;" onclick="playVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}', document.getElementById('movie-poster-${index}').src)">Spustit</button>
-                <button class="download-btn" style="width: 100%; padding: 6px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="downloadVideo('${item.link}', '${item.title.replace(/'/g, "\\'")}')">Stáhnout film</button>
-            </div>
+            <img src="${movie.poster || BACKUP_POSTER_URL}" referrerpolicy="no-referrer" onerror="this.src='${BACKUP_POSTER_URL}';">
+            <h3>${movie.title}</h3>
+            <p>${movie.year}</p>
         `;
         resultsDiv.appendChild(card);
     });
 }
 
-async function fetchPostersOneByOne(results) {
-    for (let i = 0; i < results.length; i++) {
-        const item = results[i];
-        
-        const cleanTitle = item.title
-            .replace(/(1080p|720p|4k|uhd|cz|sk|dabing|titulky|hdtv|x264|bluray|phdteam|remastered|xvid|avi|mp4|camrip|kinorip|cam)/gi, '')
-            .replace(/[()\[\]\-–—]/g, ' ') 
-            .replace(/\s+/g, ' ')            
-            .trim();
+async function openMovieDetail(movie) {
+    currentMovieData = movie;
+    resultsDiv.innerHTML = '<div class="loader">Načítám detaily filmu a streamy...</div>';
+    
+    // Reset streamů
+    activeStreams = [];
+    selectedStreamIndex = 0;
 
-        try {
-            const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(cleanTitle)}`;
-            const imdbResponse = await fetch(imdbApiUrl);
+    try {
+        // Získání streamů z Přehraj.to na pozadí
+        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
+        const streamData = await streamRes.json();
+        activeStreams = streamData.streams || [];
 
-            if (imdbResponse.ok) {
-                const imdbData = await imdbResponse.json();
+        // Vykreslení filmové stránky podle zaslané předlohy
+        resultsDiv.innerHTML = '';
+        movieDetail.style.display = 'block';
+        movieDetail.style.backgroundImage = `linear-gradient(to top, #141414 10%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,0.9) 100%), url('${movie.poster || BACKUP_POSTER_URL}')`;
+
+        // Generování tlačítek DB na základě tvého 4-krokového filtru
+        let dbButtons = '';
+        if (movie.source === 'csfd' || movie.source === 'both') {
+            dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-btn csfd-btn">ČSFD</a>`;
+        }
+        if (movie.source === 'imdb' || movie.source === 'both') {
+            dbButtons += `<a href="${movie.imdbLink}" target="_blank" class="db-btn imdb-btn">IMDb</a>`;
+        }
+
+        // Sestavení výběrové šipky (Dropdown)
+        let streamDropdownHtml = '';
+        if (activeStreams.length > 0) {
+            streamDropdownHtml = `
+                <select id="streamSelect" onchange="selectedStreamIndex=this.value" class="context-arrow">
+                    ${activeStreams.map((s, idx) => `<option value="${idx}">${s.name}</option>`).join('')}
+                </select>
+            `;
+        } else {
+            streamDropdownHtml = `<div class="no-streams-notice">Žádný volný stream nenalezen</div>`;
+        }
+
+        document.getElementById('detailContent').innerHTML = `
+            <h1 class="detail-title">${movie.title}</h1>
+            
+            <div class="action-row">
+                <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
+                ${streamDropdownHtml}
                 
-                if (imdbData && imdbData.description && imdbData.description.length > 0) {
-                    const match = imdbData.description.find(element => element["#IMG_POSTER"]);
-                    const imgElement = document.getElementById(`movie-poster-${i}`);
-                    
-                    if (match && imgElement && match["#IMG_POSTER"]) {
-                        imgElement.src = match["#IMG_POSTER"];
-                        updateFavoritePoster(item.link, match["#IMG_POSTER"]);
-                        continue; 
-                    }
-                }
-            }
-        } catch (err) {
-            console.log(`Nepodařilo se načíst plakát pro: ${cleanTitle}`, err.message);
-        }
+                ${dbButtons}
+                
+                <button class="btn-download" onclick="startDownloading()">⬇ Stáhnout</button>
+            </div>
 
-        const imgElement = document.getElementById(`movie-poster-${i}`);
-        if (imgElement && imgElement.src !== BACKUP_POSTER_URL) {
-            imgElement.src = BACKUP_POSTER_URL;
-        }
+            <div class="control-icons">
+                <button class="icon-circle" onclick="toggleFavoriteCurrent()">＋</button>
+                <button id="muteBtn" class="icon-circle" onclick="toggleMuteTrailer()">🔊</button>
+            </div>
+
+            <div class="meta-layout">
+                <div class="meta-left">
+                    <p><strong>Rok:</strong> ${movie.year}</p>
+                    <p><strong>Hlavní obsazení:</strong> ${movie.actors || 'Není k dispozici'}</p>
+                </div>
+                <div class="meta-right">
+                    <p>Informace a popis filmu jsou čerpány přímo z propojených filmových databází ČSFD a IMDb.</p>
+                </div>
+            </div>
+        `;
+
+    } catch (err) {
+        resultsDiv.innerHTML = '<div class="error">Chyba při otevírání karty filmu.</div>';
     }
 }
 
-async function playVideo(videoUrl, title, posterUrl) {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    const existujiciOverlay = document.querySelector('.loading-overlay');
-    if (existujiciOverlay) existujiciOverlay.remove();
-    
-    resultsDiv.insertAdjacentHTML('afterbegin', '<div class="loading-overlay">Načítám video stream...</div>');
+async function startStreaming() {
+    if (activeStreams.length === 0) return alert("Pro tento film není dostupný žádný stream.");
+    const targetLink = activeStreams[selectedStreamIndex].link;
 
-    currentVideoId = videoUrl;
-    currentVideoTitle = title;
-    currentVideoPoster = posterUrl;
+    playerContainer.style.display = 'block';
+    window.scrollTo({ top: playerContainer.offsetTop - 20, behavior: 'smooth' });
+    
+    document.getElementById('videoPlayer').innerHTML = "Načítám video z proxy...";
 
     try {
-        const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
+        const response = await fetch(`/get-video?url=${encodeURIComponent(targetLink)}`);
         const data = await response.json();
 
-        const overlay = document.querySelector('.loading-overlay');
-        if (overlay) overlay.remove();
+        if (data.error || !data.sources?.[0]?.file) return alert("Stream se nepodařilo dešifrovat.");
 
-        if (data.error) {
-            alert(`Nepodařilo se přehrát: ${data.error}`);
-            return;
-        }
-
-        const videoSource = data.sources && data.sources[0];
-        if (!videoSource || !videoSource.file) {
-            alert('Nebyl nalezen žádný přehrávatelný soubor.');
-            return;
-        }
-
-        playerContainer.style.display = 'block';
-        videoPlayer.src = videoSource.file;
-
-        const existingTracks = videoPlayer.querySelectorAll('track');
-        existingTracks.forEach(track => track.remove());
-
-        if (data.tracks && data.tracks.length > 0) {
-            data.tracks.forEach(trackData => {
-                const track = document.createElement('track');
-                track.kind = 'subtitles';
-                track.label = trackData.label || 'Čeština';
-                track.srclang = trackData.srclang || 'cs';
-                track.src = trackData.file;
-                track.default = trackData.default || false;
-                videoPlayer.appendChild(track);
-            });
-        }
-
+        videoPlayer.src = data.sources[0].file;
         videoPlayer.load();
-
-        const savedTime = getVideoProgress(videoUrl);
-        if (savedTime > 10) {
-            const odZnova = confirm(`Našli jsme rozkoukanou pozici u filmu "${title}". \n\nKlikněte na "OK" pro pokračování (odečteno 10s), nebo na "Zrušit" pro přehrávání od začátku.`);
-            if (odZnova) {
-                videoPlayer.currentTime = Math.max(0, savedTime - 10);
-            } else {
-                videoPlayer.currentTime = 0;
-            }
-        }
-
-        videoPlayer.play().catch(e => {
-            console.log("Automatické přehrávání zablokováno. Klikněte na Play.");
-        });
-
-    } catch (err) {
-        const overlay = document.querySelector('.loading-overlay');
-        if (overlay) overlay.remove();
-        alert('Chyba při získávání video streamu.');
-        console.error(err);
+        videoPlayer.play();
+    } catch {
+        alert("Chyba spojení se streamovacím serverem.");
     }
 }
 
-async function downloadVideo(videoUrl, title) {
-    const btn = event.target;
-    const puvodniText = btn.innerText;
-    btn.innerText = 'Získávám odkaz...';
-    btn.disabled = true;
+async function startDownloading() {
+    if (activeStreams.length === 0) return alert("Není co stáhnout.");
+    const targetLink = activeStreams[selectedStreamIndex].link;
 
     try {
-        const response = await fetch(`/get-video?url=${encodeURIComponent(videoUrl)}`);
+        const response = await fetch(`/get-video?url=${encodeURIComponent(targetLink)}`);
         const data = await response.json();
 
-        if (data.error || !data.sources || !data.sources[0] || !data.sources[0].file) {
-            alert('Nepodařilo se získat odkaz ke stažení.');
-            btn.innerText = puvodniText;
-            btn.disabled = false;
-            return;
-        }
+        if (data.error || !data.sources?.[0]?.file) return alert("Odkaz ke stažení nelze vygenerovat.");
 
-        const directLink = data.sources[0].file;
         const a = document.createElement('a');
-        a.href = directLink;
-        a.download = `${title}.mp4`;
-        a.target = '_blank'; 
-        document.body.appendChild(a);
+        a.href = data.sources[0].file;
+        a.download = `${currentMovieData.title}.mp4`;
+        a.target = '_blank';
         a.click();
-        document.body.removeChild(a);
-
-    } catch (err) {
-        console.error(err);
-        alert('Chyba při komunikaci se serverem.');
-    }
-
-    btn.innerText = puvodniText;
-    btn.disabled = false;
-}
-
-function toggleCacheMenu() {
-    const menu = document.getElementById('cacheMenu');
-    if (menu.style.display === 'none') {
-        updateCacheMenuLists();
-        menu.style.display = 'block';
-    } else {
-        menu.style.display = 'none';
+    } catch {
+        alert("Chyba stahování.");
     }
 }
 
-function saveVideoProgress(url, title, poster, time) {
-    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
-    history[url] = { title, poster, time, updated: Date.now() };
-    localStorage.setItem('watchHistory', JSON.stringify(history));
-    updateCacheMenuLists();
-}
-
-function getVideoProgress(url) {
-    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
-    return history[url] ? history[url].time : 0;
-}
-
-function isFavorite(url) {
+function toggleFavoriteCurrent() {
     let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-    return favorites.some(item => item.url === url);
-}
-
-function toggleFavorite(url, title, poster, index = null) {
-    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-    const idx = favorites.findIndex(item => item.url === url);
-
-    if (idx > -1) {
-        favorites.splice(idx, 1);
-    } else {
-        favorites.push({ url, title, poster });
-    }
-
-    localStorage.setItem('favorites', JSON.stringify(favorites));
-    updateCacheMenuLists();
-    
-    // Okamžitá změna ikony na kartě bez nutnosti znovunačítání ze sítě
-    if (index !== null) {
-        const btn = document.getElementById(`fav-btn-${index}`);
-        if (btn) {
-            const isFavNow = isFavorite(url);
-            btn.style.color = isFavNow ? '#ffca28' : '#fff';
-            btn.innerText = isFavNow ? '★' : '☆';
-        }
-    }
-}
-
-function updateFavoritePoster(url, realPoster) {
-    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
-    
-    let updatedFav = false;
-    favorites = favorites.map(item => {
-        if (item.url === url) { item.poster = realPoster; updatedFav = true; }
-        return item;
-    });
-    
-    if (history[url]) {
-        history[url].poster = realPoster;
-        localStorage.setItem('watchHistory', JSON.stringify(history));
-    }
-    
-    if (updatedFav) {
+    if (!favorites.some(f => f.title === currentMovieData.title)) {
+        favorites.push(currentMovieData);
         localStorage.setItem('favorites', JSON.stringify(favorites));
+        alert("Film přidán do oblíbených!");
+    } else {
+        alert("Film již v oblíbených máte.");
     }
 }
 
-function updateCacheMenuLists() {
-    const historyList = document.getElementById('continueWatchingList');
-    const favList = document.getElementById('favoritesList');
-    
-    if (!historyList || !favList) return;
-
-    let history = JSON.parse(localStorage.getItem('watchHistory')) || {};
-    let sortedHistory = Object.keys(history)
-        .map(key => ({ url: key, ...history[key] }))
-        .sort((a, b) => b.updated - a.updated)
-        .slice(0, 5);
-
-    if (sortedHistory.length === 0) {
-        historyList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádná rozkoukaná videa.</p>';
+function toggleMuteTrailer() {
+    const btn = document.getElementById('muteBtn');
+    if (btn.innerText === "🔊") {
+        btn.innerText = "🔇";
     } else {
-        historyList.innerHTML = sortedHistory.map(item => `
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="playVideo('${item.url}', '${item.title.replace(/'/g, "\\'")}', '${item.poster}')">
-                <img src="${item.poster}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${BACKUP_POSTER_URL}';" style="width:40px; height:55px; object-fit:cover; border-radius:2px;">
-                <div style="flex:1; min-width:0;">
-                    <div style="font-size:12px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
-                    <div style="font-size:10px; color:#aaa;">Zbývá od: ${Math.floor(item.time / 60)} min</div>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
-    if (favorites.length === 0) {
-        favList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádné oblíbené filmy.</p>';
-    } else {
-        favList.innerHTML = favorites.map(item => `
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="playVideo('${item.url}', '${item.title.replace(/'/g, "\\'")}', '${item.poster}')">
-                <img src="${item.poster}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${BACKUP_POSTER_URL}';" style="width:40px; height:55px; object-fit:cover; border-radius:2px;">
-                <div style="flex:1; min-width:0;">
-                    <div style="font-size:12px; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
-                </div>
-                <button onclick="event.stopPropagation(); toggleFavorite('${item.url}')" style="background:transparent; border:none; color:#ffca28; cursor:pointer; font-size:16px;">★</button>
-            </div>
-        `).join('');
+        btn.innerText = "🔊";
     }
 }

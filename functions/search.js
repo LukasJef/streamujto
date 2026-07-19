@@ -13,88 +13,62 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Chybí parametr 'q'" }), { status: 400, headers: corsHeaders });
   }
 
-  let globalPosterUrl = '';
+  // OPRAVENO: Správná doména pro oficiální CZDB API
+  const CZDB_API = `https://api.czdb.cz/search?q=${encodeURIComponent(query)}`;
+  const IMDB_API = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
+
+  let finalResults = [];
 
   try {
-    const imdbApiUrl = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
-    const imdbResponse = await fetch(imdbApiUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
+    // KROK 1: Vyhledáme film na CZDB (ČSFD)
+    let czdbRes = await fetch(CZDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    let czdbData = czdbRes.ok ? await czdbRes.json() : null;
 
-    if (imdbResponse.ok) {
-      const imdbData = await imdbResponse.json();
+    if (czdbData && czdbData.description && czdbData.description.length > 0) {
+      finalResults = normalizeData(czdbData.description, 'csfd');
+    } else {
+      // KROK 2: Nic nevychází -> Vyhledáme na iamidiot (IMDb API)
+      let imdbRes = await fetch(IMDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      let imdbData = imdbRes.ok ? await imdbRes.json() : null;
+
       if (imdbData && imdbData.description && imdbData.description.length > 0) {
-        const firstMatch = imdbData.description.find(item => item["#IMG_POSTER"]);
-        if (firstMatch) {
-          globalPosterUrl = firstMatch["#IMG_POSTER"];
+        // KROK 3: Vezmeme originální název z prvního zápisu a zkusíme ho dát zpět do CZDB
+        const origTitle = imdbData.description[0]["#TITLE"] || imdbData.description[0]["#AKA"];
+        
+        if (origTitle) {
+          // OPRAVENO: Správná doména i pro zpětný vyhledávací pokus
+          let retryCzdbRes = await fetch(`https://api.czdb.cz/search?q=${encodeURIComponent(origTitle)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          let retryCzdbData = retryCzdbRes.ok ? await retryCzdbRes.json() : null;
+          
+          if (retryCzdbData && retryCzdbData.description && retryCzdbData.description.length > 0) {
+            finalResults = normalizeData(retryCzdbData.description, 'both');
+          }
+        }
+
+        // KROK 4: Pokud CZDB stále nevychází, IMDb slouží jako kompletní fallback
+        if (finalResults.length === 0) {
+          finalResults = normalizeData(imdbData.description, 'imdb');
         }
       }
     }
-  } catch (imdbError) {
-    console.log("IMDb API selhalo:", imdbError.message);
-  }
 
-  const url = `https://prehraj.to/hledej/${encodeURIComponent(query)}`;
-  
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'user-agent': 'kodi/prehraj.to',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': 'https://prehraj.to/'
-      }
-    });
-
-    if (response.status === 429) {
-      return new Response(JSON.stringify({ error: "Přehraj.to vrátilo limit 429." }), { status: 429, headers: corsHeaders });
-    }
-
-    const html = await response.text();
-    const results = [];
-
-    const videoBlockRegex = /<a[^>]+class="[^"]*video--link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-    const titleRegex = /<h3[^>]+class="[^"]*video__title[^"]*"[^>]*>([\s\S]*?)<\/h3>/;
-    const sizeRegex = /<div[^>]+class="[^"]*video__tag--size[^"]*"[^>]*>([\s\S]*?)<\/div>/;
-    const durationRegex = /<div[^>]+class="[^"]*video__tag--time[^"]*"[^>]*>([\s\S]*?)<\/div>/;
-    const imageRegex = /<img[^>]+(?:src|data-src)="([^"]+)"/;
-
-    let match;
-    const seenLinks = new Set();
-
-    while ((match = videoBlockRegex.exec(html)) !== null) {
-      const link = match[1];
-      const innerHtml = match[2];
-
-      const titleMatch = innerHtml.match(titleRegex);
-      const sizeMatch = innerHtml.match(sizeRegex);
-      const durationMatch = innerHtml.match(durationRegex);
-      const imageMatch = innerHtml.match(imageRegex);
-
-      if (titleMatch && !seenLinks.has(link)) {
-        seenLinks.add(link);
-        
-        const title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
-        const size = sizeMatch ? sizeMatch[1].replace(/<[^>]*>/g, '').trim() : '';
-        const duration = durationMatch ? durationMatch[1].replace(/<[^>]*>/g, '').trim() : '';
-        
-        let backupThumb = imageMatch ? imageMatch[1] : '';
-        if (backupThumb && backupThumb.startsWith('/')) {
-          backupThumb = `https://prehraj.to${backupThumb}`;
-        }
-
-        results.push({
-          link: link,
-          title: title,
-          size: size,
-          duration: duration,
-          thumb: globalPosterUrl || backupThumb
-        });
-      }
-    }
-
-    return new Response(JSON.stringify({ results }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ results: finalResults }), { headers: corsHeaders });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
   }
+}
+
+// Pomocná funkce pro sjednocení datové struktury z obou API
+function normalizeData(items, source) {
+  return items.map(item => ({
+    id: item["#IMDB_ID"] || item["#CSFD_ID"] || Math.random().toString(),
+    title: item["#TITLE"] || item["#AKA"] || "Neznámý název",
+    year: item["#YEAR"] || "---",
+    poster: item["#IMG_POSTER"] || "",
+    actors: item["#ACTORS"] || "",
+    source: source,
+    imdbLink: item["#IMDB_ID"] ? `https://www.imdb.com/title/${item["#IMDB_ID"]}` : null,
+    csfdLink: item["#CSFD_ID"] ? `https://www.csfd.cz/film/${item["#CSFD_ID"]}` : null
+  })).slice(0, 12);
 }
