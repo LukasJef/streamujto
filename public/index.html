@@ -33,7 +33,6 @@
             position: relative;
         }
 
-        /* Horní lišta / Hlavička */
         header {
             display: flex;
             justify-content: space-between;
@@ -52,7 +51,6 @@
             user-select: none;
         }
 
-        /* Tlačítko pro knihovnu */
         .library-toggle {
             background: transparent;
             border: 2px solid #333;
@@ -69,7 +67,6 @@
             background: rgba(229, 9, 20, 0.1);
         }
 
-        /* Vyhledávací box */
         .search-box {
             display: flex;
             width: 100%;
@@ -105,11 +102,228 @@
             background: #b0070f;
         }
 
-        /* Menu oblíbených (Dropdown / Panel) */
+        /* NETFLIX MŘÍŽKA FILMŮ */
+        #movieGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 25px;
+            width: 100%;
+            padding-top: 10px;
+        }
+
+        .movie-card {
+            background: var(--card-bg);
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .movie-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+        }
+
+        .poster-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 2 / 3;
+            background: #222;
+            overflow: hidden;
+        }
+
+        .poster-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .poster-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            box-sizing: border-box;
+            text-align: center;
+            background: linear-gradient(45deg, #141414, #262626);
+            color: var(--text-dim);
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .movie-card-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .movie-card:hover .movie-card-overlay {
+            opacity: 1;
+        }
+
+        .play-icon {
+            font-size: 40px;
+            color: white;
+            transform: scale(0.8);
+            transition: transform 0.2s ease;
+        }
+
+        .movie-card:hover .play-icon {
+            transform: scale(1);
+        }
+
+        .movie-card-info {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .movie-card-info h3 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-main);
+        }
+
+        .movie-card-year {
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        /* FILMOVÝ MODAL OVERLAY (Kinomód) */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #101010;
+            width: 100%;
+            max-width: 950px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.9);
+            border: 1px solid #222;
+            position: relative;
+        }
+
+        .close-modal-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid #444;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .close-modal-btn:hover {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+        }
+
+        /* STREAMY LIST */
+        .file-list-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .file-item {
+            background: #181818;
+            border: 1px solid #252525;
+            padding: 14px 20px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            background: #222;
+            border-color: #444;
+            transform: translateX(4px);
+        }
+
+        .file-info-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .file-play-icon {
+            color: var(--accent-red);
+            font-size: 14px;
+        }
+
+        .file-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-info-right {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        .loading, .loading-files {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 30px;
+            font-style: italic;
+            width: 100%;
+            grid-column: 1 / -1;
+        }
+
+        /* Knihovna panel */
         .cache-menu {
             position: absolute;
-            top: 70px;
-            right: 20px;
+            top: 70px; right: 20px;
             background: #181818;
             border: 1px solid #333;
             border-radius: 8px;
@@ -117,31 +331,6 @@
             width: 280px;
             z-index: 100;
             box-shadow: 0 10px 30px rgba(0,0,0,0.7);
-        }
-
-        /* Načítání a chyby */
-        .loader {
-            text-align: center;
-            color: var(--text-dim);
-            font-size: 16px;
-            padding: 40px;
-        }
-        .no-results, .error {
-            text-align: center;
-            color: #ff3333;
-            font-size: 16px;
-            padding: 40px;
-        }
-
-        /* Styly pro select boxy v detailu aby ladily k designu */
-        select {
-            outline: none;
-            font-weight: bold;
-            padding: 0 12px;
-        }
-        select option {
-            background: #141414;
-            color: white;
         }
     </style>
 </head>
@@ -151,95 +340,67 @@
         
         <!-- Hlavička webu -->
         <header>
-            <h1 onclick="closeMovieDetail()" style="cursor:pointer;">STREAMUJ.ATRIXX</h1>
-            <button class="library-toggle" onclick="toggleCacheMenu()">★ Moje knihovna</button>
+            <h1 style="cursor:pointer;" id="logoHome">STREAMUJ.ATRIXX</h1>
+            <button class="library-toggle" id="libToggleBtn">★ Moje knihovna</button>
         </header>
 
         <!-- Panel oblíbených filmů (Skrytý jako default) -->
         <div id="cacheMenu" class="cache-menu" style="display: none;">
             <h3 style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-dim); text-transform: uppercase;">Oblíbené tituly</h3>
-            <div id="favoritesList">
-                <!-- Sem JavaScript vykresluje oblíbené položky -->
-            </div>
+            <div id="favoritesList"></div>
         </div>
 
-       <!-- Hlavní vyhledávací panel -->
-<div class="search-box" id="mainSearchBox">
-    <input type="text" id="searchInput" placeholder="Zadej název filmu nebo seriálu...">
-    <button id="searchBtn">Hledat</button>
-</div>
-
-<!-- Mřížka čistých filmových karet (IMDb Grid) -->
-<div id="movieGrid"></div>
-
-        <!-- PRÉMIOVÝ DETAIL FILMU (Styl Netflix / Stremio) -->
-        <div id="movieDetailView" style="display: none; position: relative; width: 100%; background: #0b0b0b; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.8); margin-bottom: 40px; border: 1px solid #222;">
-            
-            <!-- Billboard s trailerem nebo plakátem na pozadí -->
-            <div id="detailBillboard" style="position: relative; width: 100%; min-height: 480px; background-size: cover; background-position: center; display: flex; align-items: flex-end;">
-                
-                <!-- Zde se na pozadí načte ztišená ukázka z Youtube -->
-                <div id="trailerEmbedContainer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.4; overflow: hidden;"></div>
-                
-                <!-- Stmívací vrstva (gradient) zaručující čitelnost textu -->
-                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, rgba(11,11,11,0.1) 30%, rgba(11,11,11,0.8) 70%, rgba(11,11,11,1) 100%);"></div>
-                
-                <!-- Informační vrstva a ovládací lišta -->
-                <div style="position: relative; padding: 40px; width: 100%; box-sizing: border-box; z-index: 5;">
-                    <h2 id="detailTitle" style="font-size: 48px; margin: 0 0 20px 0; font-weight: 800; text-shadow: 0 4px 10px rgba(0,0,0,0.8);">Název filmu</h2>
-                    
-                    <!-- Ovládací Řada (Tlačítka a výběr streamů) -->
-                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;">
-                        
-                        <!-- Přehrát soubor -->
-                        <div style="display: flex; border-radius: 4px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
-                            <button id="mainPlayBtn" style="padding: 14px 28px; background: var(--accent-red); color: white; border: none; font-size: 16px; font-weight: bold; cursor: pointer;" onclick="playSelectedFile()">▶ Přehrát</button>
-                            <select id="streamSelector" style="background: #b0070f; color: white; border: none; padding: 0 10px; font-size: 16px; cursor: pointer;" onchange="syncSelectedStream()"></select>
-                        </div>
-
-                        <!-- Tlačítko ČSFD -->
-                        <a id="csfdLinkBtn" href="#" target="_blank" style="display:none; height: 46px; background: white; border-radius: 4px; padding: 0 15px; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
-                            <img src="https://image.pmgstatic.com/files/svg/logos/logo-short-red.svg" style="height:22px;">
-                        </a>
-                        
-                        <!-- Tlačítko IMDb -->
-                        <a id="imdbLinkBtn" href="#" target="_blank" style="display:none; height: 46px; background: #f5c518; color: black; font-weight: bold; font-size: 16px; padding: 0 15px; border-radius: 4px; align-items: center; text-decoration: none; justify-content: center; font-family: sans-serif; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">IMDb</a>
-
-                        <!-- Stáhnout soubor -->
-                        <div style="display: flex; border-radius: 4px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
-                            <button id="mainDownloadBtn" style="padding: 14px 24px; background: white; color: black; border: none; font-size: 16px; font-weight: bold; cursor: pointer;" onclick="downloadSelectedFile()">⬇ Stáhnout</button>
-                            <select id="downloadSelector" style="background: #e0e0e0; color: black; border: none; padding: 0 10px; font-size: 16px; cursor: pointer; border-left: 1px solid #ccc;"></select>
-                        </div>
-                    </div>
-
-                    <!-- Doplňková tlačítka (Oblíbené + Zvuk traileru) -->
-                    <div style="display: flex; gap: 15px; margin-bottom: 25px;">
-                        <button id="detailFavBtn" style="width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 2px solid #fff; color: white; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">+</button>
-                        <button id="detailSoundBtn" onclick="toggleTrailerMute()" style="width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 2px solid #fff; color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">🔇</button>
-                    </div>
-
-                    <!-- Spodní sekce: Popisek filmu vs Obsazení a štáb -->
-                    <div style="display: flex; gap: 40px; flex-wrap: wrap; background: rgba(11,11,11,0.5); padding: 20px; border-radius: 8px;">
-                        <div style="flex: 2; min-width: 300px;">
-                            <div id="detailMetaRow" style="color: var(--text-dim); font-size: 14px; margin-bottom: 15px; font-weight: bold; letter-spacing: 0.5px;"></div>
-                            <p id="detailDescription" style="font-size: 15px; line-height: 1.6; color: #ddd; margin: 0;"></p>
-                        </div>
-                        <div id="detailCrewRow" style="flex: 1; min-width: 250px; font-size: 14px; color: #bbb; line-height: 1.8; border-left: 1px solid #222; padding-left: 20px;">
-                            <!-- Zde se zobrazí Hrají / Režie -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Integrovaný HTML5 Video Přehrávač (Zobrazí se pod billboardem při kliku na Přehrát) -->
-            <div id="playerContainer" style="display: none; width: 100%; background: #000; padding: 10px 0; border-top: 2px solid #222;">
-                <video id="videoPlayer" controls crossorigin="anonymous" style="width:100%; max-height: 560px; display: block; margin: 0 auto;"></video>
-            </div>
+        <!-- Hlavní vyhledávací panel -->
+        <div class="search-box" id="mainSearchBox">
+            <input type="text" id="searchInput" placeholder="Zadej název filmu nebo seriálu...">
+            <button id="searchBtn">Hledat</button>
         </div>
 
+        <!-- Mřížka čistých filmových karet (IMDb/CZDB Grid) -->
+        <div id="movieGrid"></div>
     </div>
 
-    <!-- Propojení na tvůj upravený logický skript -->
+    <!-- PŘEPRACOVANÝ DETAIL FILMU (Kinomód Modal) -->
+    <div id="movieDetailModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="close-modal-btn" id="closeDetailBtn">✕</button>
+            
+            <!-- Billboard s trailerem nebo plakátem -->
+            <div id="detailBillboard" style="position: relative; width: 100%; min-height: 450px; background-size: cover; background-position: center; display: flex; align-items: flex-end;">
+                
+                <!-- Zde se na pozadí načte ztišená ukázka -->
+                <div id="trailerEmbedContainer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.4; overflow: hidden;"></div>
+                
+                <!-- Stmívací vrstva (gradient) -->
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, rgba(16,16,16,0) 20%, rgba(16,16,16,0.8) 70%, rgba(16,16,16,1) 100%);"></div>
+                
+                <!-- Informační vrstva -->
+                <div style="position: relative; padding: 40px; width: 100%; box-sizing: border-box; z-index: 5;">
+                    <h2 id="detailTitle" style="font-size: 42px; margin: 0 0 15px 0; font-weight: 800; text-shadow: 0 4px 10px rgba(0,0,0,0.9);">Název filmu</h2>
+                    
+                    <!-- Doplňková tlačítka (Zvuk traileru) -->
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                        <button id="detailSoundBtn" style="width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 2px solid #fff; color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">🔇</button>
+                    </div>
+
+                    <!-- Spodní sekce: Popisek filmu vs Obsazení -->
+                    <div style="display: flex; gap: 30px; flex-wrap: wrap; background: rgba(16,16,16,0.6); padding: 20px; border-radius: 8px; border: 1px solid #222;">
+                        <div style="flex: 2; min-width: 300px;">
+                            <div id="detailMetaRow" style="color: var(--text-dim); font-size: 14px; margin-bottom: 15px; font-weight: bold; letter-spacing: 0.5px;"></div>
+                            <p id="detailDescription" style="font-size: 15px; line-height: 1.6; color: #ddd; margin: 0;">Načítám detaily z ČSFD...</p>
+                        </div>
+                        <div id="detailCrewRow" style="flex: 1; min-width: 230px; font-size: 14px; color: #bbb; line-height: 1.8; border-left: 1px solid #222; padding-left: 20px;"></div>
+                    </div>
+
+                    <!-- SEZNAM DOSTUPNÝCH ONLINE STREAMŮ -->
+                    <h3 style="margin: 30px 0 15px 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Dostupné online streamy (Přehraj.to):</h3>
+                    <div id="fileListContainer" class="file-list-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Propojení skriptu -->
     <script src="app.js"></script>
 </body>
 </html>
