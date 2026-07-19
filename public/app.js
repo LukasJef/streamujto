@@ -58,7 +58,7 @@ async function search() {
     }
 }
 
-// Vykreslení mřížky karet s líným asynchronním načítáním plakátů pro CZDB
+// Opravené vykreslení mřížky s okamžitým IMDb plakátem a inteligentním líným načítáním
 function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     targetElement.innerHTML = '';
 
@@ -68,7 +68,6 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         card.id = `card-${btoa(encodeURIComponent(movie.title)).replace(/=/g, '')}`;
         card.onclick = () => openMovieDetail(movie);
 
-        // Zkontrolujeme, jestli máme uloženou pozici pro progress bar
         const progress = getWatchProgress(movie.title);
         let progressBarHtml = '';
         if (progress && progress.percent > 1) {
@@ -79,8 +78,9 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
             `;
         }
 
+        // Pokud máme poster z IMDb párování, rovnou ho podstrčíme do src
         card.innerHTML = `
-            <img id="img-${card.id}" src="${movie.poster || FALLBACK_POSTER}" referrerpolicy="no-referrer">
+            <img id="img-${card.id}" src="${movie.poster || FALLBACK_POSTER}" referrerpolicy="no-referrer" onerror="this.src='${FALLBACK_POSTER}';">
             <div class="card-info">
                 <h3>${movie.title}</h3>
                 <p>${movie.year}</p>
@@ -89,12 +89,12 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         `;
         targetElement.appendChild(card);
 
-        // ASYNCHRONNÍ SOSÁNÍ PLAKÁTŮ: Pokud CZDB nevrátila plakát, na pozadí ho dočteme z detailu
-        if (lazyLoadPosters && !movie.poster && movie.csfdLink) {
+        // Líné načítání z ČSFD zkusí najít lokální CZ plakát, ale nepřepíše funkční IMDb pokud selže
+        if (lazyLoadPosters && movie.csfdLink) {
             fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`)
                 .then(res => res.json())
                 .then(details => {
-                    if (details.poster) {
+                    if (details.poster && details.poster.trim() !== "") {
                         movie.poster = details.poster;
                         const imgEl = document.getElementById(`img-${card.id}`);
                         if (imgEl) imgEl.src = details.poster;
@@ -104,44 +104,61 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     });
 }
 
+// Opravený přechod na detail filmu (Prioritizuje ČSFD, ale drží IMDb jako tvrdou zálohu)
 async function openMovieDetail(movie) {
     currentMovieData = movie;
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
-    // Zobrazíme loader uvnitř detailu pro plynulý přechod
     movieDetail.style.display = 'block';
     document.getElementById('detailContent').innerHTML = '<div class="loader">Sosám data z ČSFD/IMDb a připravuji streamy...</div>';
     movieDetail.style.backgroundImage = 'none';
 
     try {
-        let deepDetails = { poster: movie.poster, description: 'Popis filmu se připravuje.', actors: movie.actors, genres: 'Film', trailerUrl: '' };
+        // Výchozí stav naplníme tím, co už máme z rychlého vyhledávání (včetně funkčního IMDb posteru!)
+        let deepDetails = { 
+            poster: movie.poster, 
+            description: 'Popis filmu se připravuje.', 
+            actors: movie.actors, 
+            genres: 'Film', 
+            trailerUrl: '' 
+        };
         
         if (movie.csfdLink) {
             try {
                 const detailRes = await fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`);
-                if (detailRes.ok) deepDetails = await detailRes.json();
-            } catch (e) { console.log("Selhal scraper hloubkových detailů."); }
+                if (detailRes.ok) {
+                    const scrapedData = await detailRes.json();
+                    // ZDE JE OPRAVA: Pokud škrabák vrátil prázdný plakát, natvrdo zachováme ten z IMDb
+                    deepDetails.poster = (scrapedData.poster && scrapedData.poster.trim() !== "") ? scrapedData.poster : movie.poster;
+                    deepDetails.description = scrapedData.description || deepDetails.description;
+                    deepDetails.actors = scrapedData.actors || deepDetails.actors;
+                    deepDetails.genres = scrapedData.genres || deepDetails.genres;
+                    deepDetails.trailerUrl = scrapedData.trailerUrl || '';
+                }
+            } catch (e) { console.log("ČSFD Scraper nedostupný, přecházím na IMDb metadata."); }
         }
 
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
         const streamData = await streamRes.json();
         activeStreams = streamData.streams || [];
 
-        // Obohacení dat filmu o stažené položky
-        currentMovieData.poster = deepDetails.poster || movie.poster || FALLBACK_POSTER;
+        // Synchronizace objektu pro potřeby ukládání do Knihovny/Historie
+        currentMovieData.poster = deepDetails.poster || FALLBACK_POSTER;
         currentMovieData.description = deepDetails.description;
-        currentMovieData.actors = deepDetails.actors || movie.actors;
+        currentMovieData.actors = deepDetails.actors;
         currentMovieData.genres = deepDetails.genres;
 
-        // Vykreslení velkého filmového pozadí podle A24 specifikace
-        movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 10%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.8) 100%), url('${currentMovieData.poster}')`;
+        // Aplikace filmového pozadí s garantovaným obrázkem
+        movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
 
+        // Inteligentní zobrazení tlačítek na základě typu zdroje ("both" teď bude standard)
         let dbButtons = '';
         if (movie.source === 'csfd' || movie.source === 'both') {
             dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-btn-csfd">ČSFD</a>`;
         }
-        if (movie.source === 'imdb' || movie.source === 'both') {
-            dbButtons += `<a href="${movie.imdbLink || ('https://www.imdb.com/find?q='+encodeURIComponent(movie.title))}" target="_blank" class="db-btn-imdb">IMDb</a>`;
+        if (movie.source === 'imdb' || movie.source === 'both' || movie.imdbLink) {
+            const finalImdbUrl = movie.imdbLink || `https://www.imdb.com/find?q=${encodeURIComponent(movie.title)}`;
+            dbButtons += `<a href="${finalImdbUrl}" target="_blank" class="db-btn-imdb">IMDb</a>`;
         }
 
         let streamDropdownHtml = '';
@@ -185,7 +202,7 @@ async function openMovieDetail(movie) {
             <div class="meta-layout">
                 <div class="meta-left">
                     <p style="color:var(--accent); font-weight:bold; font-size:18px; margin-bottom:10px;">${deepDetails.genres}</p>
-                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year} • <strong>Zdroj:</strong> ${movie.source.toUpperCase()}</p>
+                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year} • <strong>Spárováno přes:</strong> ${movie.source.toUpperCase()}</p>
                     <p style="color:var(--text-dim); line-height:1.6; font-size:15px;">${deepDetails.description}</p>
                 </div>
                 <div class="meta-right">
@@ -194,11 +211,10 @@ async function openMovieDetail(movie) {
             </div>
         `;
 
-        // Uložit do historie (Knihovny), že si kartu otevřel
         addToHistory(currentMovieData);
 
     } catch (err) {
-        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při stahování detailu z ČSFD.</div>';
+        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při sestavování karty s IMDb fallbackem.</div>';
     }
 }
 
