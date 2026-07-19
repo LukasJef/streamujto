@@ -27,60 +27,57 @@ export async function onRequest(context) {
       trailer: null
     };
 
-    // 1. PŘÍMÝ SOUBOR TRAILERU (Hledání MP4/M3U8 odkazu na video.csfd.cz)
-    const trailerMatch = html.match(/(https:\/\/video\.csfd\.cz\/[^"\s]+\.(?:mp4|m3u8|webm))/i);
-    if (trailerMatch) {
-      // Odstraníme případná utíkající zpětná lomítka, pokud byl odkaz v JSONu uvnitř skriptu
-      data.trailer = trailerMatch[1].replace(/\\/g, ''); 
-    }
+    // 1. Poster (Plakát) - Využijeme OpenGraph tag, který je nejstabilnější
+    const ogPosterMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    if (ogPosterMatch) data.poster = ogPosterMatch[1];
 
-    // 2. PLAKÁT FILMU
-    const posterMatch = html.match(/<div[^>]+class="[^"]*film-poster[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"/i) 
-                        || html.match(/(https:\/\/(?:image\.pmoviestat\.com|img\.csfd\.cz)\/files\/images\/film\/posters\/[^"\s>]+)/i);
-    if (posterMatch) {
-      data.poster = posterMatch[1];
-    }
-
-    // 3. POPIS / DĚJ FILMU
-    const plotMatch = html.match(/<div[^>]+class="[^"]*plot-full[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
-                      || html.match(/<div[^>]+class="[^"]*plot-preview[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    // 2. Description (Obsah/Popis filmu)
+    // Zkusíme najít hlavní text distributora/obsahu, jinak použijeme OG popis jako fallback
+    const plotMatch = html.match(/<p class="plot-compact">([\s\S]*?)<\/p>/) || html.match(/<div class="plot-full">[\s\S]*?<p>([\s\S]*?)<\/p>/);
     if (plotMatch) {
       data.description = plotMatch[1].replace(/<[^>]*>/g, '').trim();
     } else {
-      // Nouzová záloha pro textové výpisy bez plných tříd
-      const obsahyIdx = html.indexOf('Obsahy');
-      if (obsahyIdx !== -1) {
-        const block = html.substring(obsahyIdx, obsahyIdx + 1200).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
-        const textMatch = block.match(/(?:Obsahy\s*\(\d+\)|Obsahy)\s*(.+)/i);
-        if (textMatch && textMatch[1].length > 40) {
-          data.description = textMatch[1].substring(0, 450).trim() + "...";
-        }
-      }
+      const ogDescMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+      if (ogDescMatch) data.description = ogDescMatch[1].trim();
     }
 
-    // 4. ŽÁNRY
-    const genresMatch = html.match(/<div[^>]+class="[^"]*genres[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    // 3. Genres (Žánry)
+    const genresMatch = html.match(/<div class="genres">([\s\S]*?)<\/div>/);
     if (genresMatch) {
       data.genres = genresMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     }
 
-    // 5. OBSAZENÍ / HRAJÍ
-    const castMatch = html.match(/h4[^>]*>Hrají:[\s\S]*?<\/h4>([\s\S]*?)(?:<\/div>|h4|$)/i)
-                    || html.match(/h6[^>]*>Hrají:[\s\S]*?<\/h6>([\s\S]*?)(?:<\/div>|h6|$)/i)
-                    || html.match(/Hrají:[\s\S]*?([\s\S]*?)(?:\n\n|\r\n|$)/i);
+    // 4. Cast (Hrají)
+    const castMatch = html.match(/<h4>Hrají:<\/h4>([\s\S]*?)<\/div>/);
     if (castMatch) {
-      let cleanCast = castMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').replace(/[\(\[\{\}\]\)]/g, '').trim();
-      if (cleanCast.includes('více')) {
-        cleanCast = cleanCast.split('více')[0].trim();
+      const castHtml = castMatch[1];
+      const actorRegex = /<a[^>]*>([^<]+)<\/a>/g;
+      let actorMatch;
+      const actors = [];
+      while ((actorMatch = actorRegex.exec(castHtml)) !== null) {
+        actors.push(actorMatch[1].trim());
       }
-      data.cast = cleanCast.replace(/,\s*$/, ''); // Odstranění visící čárky
+      data.cast = actors.slice(0, 12).join(', '); // Vezmeme prvních 12 herců
+    }
+
+    // 5. Trailer (Hledání přímého MP4 videa v konfiguraci JWPlayeru nebo JS na ČSFD)
+    const trailerMatch = html.match(/"file"\s*:\s*"([^"]+\.mp4[^"]*)"/) || html.match(/src="([^"]+\.mp4[^"]*)"/);
+    if (trailerMatch) {
+      // Odstraníme případná zpětná lomítka z JSON stringu
+      data.trailer = trailerMatch[1].replace(/\\/g, '');
     }
 
     return new Response(JSON.stringify(data), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600' // Kešovat na 1 hodinu pro úsporu požadavků
+      }
     });
 
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
