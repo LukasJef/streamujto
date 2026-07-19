@@ -59,7 +59,6 @@
             cursor: pointer;
             font-weight: bold;
             font-size: 14px;
-            transition: all 0.2s;
         }
 
         .search-box {
@@ -157,7 +156,7 @@
             color: var(--text-dim);
         }
 
-        /* MODAL KINOMÓD (PŘEDSTAVA) */
+        /* MODAL KINOMÓD */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -196,11 +195,6 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
-        }
-        .close-modal-btn:hover {
-            background: #fff;
-            color: #000;
         }
 
         /* BILLBOARD / BANER */
@@ -253,7 +247,7 @@
             text-shadow: 0 4px 15px rgba(0,0,0,0.8);
         }
 
-        /* AKČNÍ TLAČÍTKA PODLE PŘEDLOHY */
+        /* TLAČÍTKA S ROZBALOVACÍ ŠIPKOU */
         .action-row {
             display: flex;
             align-items: center;
@@ -270,7 +264,6 @@
             border-radius: 4px;
             font-weight: bold;
             font-size: 16px;
-            cursor: pointer;
             overflow: hidden;
         }
         .btn-play-main {
@@ -278,11 +271,22 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-play-main:hover {
+            background: #b0070f;
         }
         .btn-play-arrow {
-            padding: 12px 14px;
+            padding: 12px 16px;
             background: rgba(0,0,0,0.15);
             border-left: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+        .btn-play-arrow:hover {
+            background: rgba(0,0,0,0.3);
         }
 
         .btn-csfd {
@@ -294,7 +298,6 @@
             border-radius: 4px;
             font-size: 16px;
             cursor: pointer;
-            letter-spacing: 0.5px;
         }
 
         .btn-imdb {
@@ -321,6 +324,9 @@
             align-items: center;
             gap: 6px;
         }
+        .btn-download:hover {
+            background: #e0e0e0;
+        }
 
         .btn-circle {
             width: 44px; height: 44px;
@@ -334,11 +340,8 @@
             align-items: center;
             justify-content: center;
         }
-        .btn-circle:hover {
-            border-color: #fff;
-        }
 
-        /* DVOU-SLOUPCOVÉ INFO O FILMU */
+        /* INFO SEKCE */
         .info-columns {
             display: flex;
             gap: 50px;
@@ -375,10 +378,15 @@
             margin: 0;
         }
 
-        /* SEZNAM SOUBORŮ K PŘEHRÁNÍ */
+        /* SKRYTÁ SEKCE STREAMŮ (Zobrazí se až po kliku na šipku) */
         .streams-section {
             padding: 0 40px 40px 40px;
+            display: none; /* Skryto defaultně */
         }
+        .streams-section.visible {
+            display: block;
+        }
+        
         .file-list {
             display: flex;
             flex-direction: column;
@@ -394,12 +402,22 @@
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
         .file-row:hover {
             background: #1c1c1c;
-            border-color: #333;
         }
+        
+        /* Styl pro označený/vybraný soubor */
+        .file-row.selected {
+            border-color: var(--accent-red);
+            background: rgba(229, 9, 20, 0.1);
+        }
+        .file-row.selected .file-title-text {
+            color: var(--accent-red);
+            font-weight: bold;
+        }
+
         .file-title-text {
             font-weight: 500;
             display: flex;
@@ -434,14 +452,12 @@
         <div id="movieGrid"></div>
     </div>
 
-    <!-- PRECIZNÍ KINOMÓD MODAL -->
+    <!-- DETAIL FILMU MODAL -->
     <div id="movieDetailModal" class="modal-overlay">
         <div class="modal-content">
             <button class="close-modal-btn" id="closeDetailBtn">✕</button>
             
-            <!-- Hlavní velký banner s upoutávkou -->
             <div class="billboard">
-                <!-- Image s vypnutým referrerem proti blokaci ČSFD -->
                 <img id="detailBillboardImg" referrerpolicy="no-referrer" class="billboard-bg-img" src="" alt="">
                 <div id="trailerEmbedContainer" class="billboard-video-container"></div>
                 <div class="billboard-gradient"></div>
@@ -449,11 +465,10 @@
                 <div class="billboard-details">
                     <h2 id="detailTitle" class="movie-title-large">Název</h2>
                     
-                    <!-- Panel akcí přesně podle předlohy -->
                     <div class="action-row">
-                        <div class="btn-play-split" id="actionPlayBtn">
-                            <div class="btn-play-main"><span>▶</span> Přehrát</div>
-                            <div class="btn-play-arrow">⋁</div>
+                        <div class="btn-play-split">
+                            <div class="btn-play-main" id="actionPlayBtn"><span>▶</span> Přehrát</div>
+                            <div class="btn-play-arrow" id="btnToggleStreams">⋁</div>
                         </div>
                         <button class="btn-csfd" id="btnCsfdLink">ČSFD</button>
                         <button class="btn-imdb" id="btnImdbLink">IMDb</button>
@@ -462,23 +477,21 @@
                         <button class="btn-circle" id="detailSoundBtn">🔇</button>
                     </div>
 
-                    <!-- Blok s informacemi rozdělený na sloupce -->
                     <div class="info-columns">
                         <div class="info-left">
-                            <div id="detailGenres" class="meta-genres">Žánry</div>
-                            <div id="detailSpecs" class="meta-specs">Země · Rok · Délka</div>
+                            <div id="detailGenres" class="meta-genres"></div>
+                            <div id="detailSpecs" class="meta-specs"></div>
                             <p id="detailDescription" class="movie-plot">Načítám text obsahu...</p>
                         </div>
-                        <div id="detailCrew" class="info-right">
-                            <!-- Zde se dynamicky vygeneruje: Režie, Scénář, Hrají... -->
-                        </div>
+                        <div id="detailCrew" class="info-right"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- Spodní sekce se streamy -->
-            <div class="streams-section">
-                <h3 style="margin: 0 0 15px 0; font-size: 18px; letter-spacing: 0.5px;">Dostupné online streamy (Přehraj.to):</h3>
+            <!-- CHYTRÁ SEKCE SOUBORŮ -->
+            <div id="streamsSection" class="streams-section">
+                <h3 style="margin: 0 0 5px 0; font-size: 18px; letter-spacing: 0.5px;">Vyberte preferovaný soubor:</h3>
+                <span style="font-size: 13px; color: var(--text-dim);">Kliknutím soubor označíte, tlačítky nahoře ho pak spustíte/stáhnete.</span>
                 <div id="fileListContainer" class="file-list"></div>
             </div>
         </div>
