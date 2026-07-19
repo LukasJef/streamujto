@@ -12,40 +12,75 @@ let currentMovieData = null;
 
 const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&auto=format&fit=crop';
 
-// Pomocná funkce pro extrakci čísla dílu
-function extractSequelNumber(text) {
-    let clean = String(text || '').toLowerCase();
-    clean = clean.replace(/\b(19|20)\d{2}\b/g, ' '); // Ignorovat roky
+// --- POMOCNÉ FUNKCE PRO INTELIGENTNÍ ŘAZENÍ STREAMŮ ---
 
-    const arabicMatch = clean.match(/\b([1-9]|10)\b/);
-    if (arabicMatch) return parseInt(arabicMatch[1], 10);
-
-    const romanMatch = clean.match(/\b(i{1,3}|iv|v|vi{1,3}|ix|x)\b/);
-    if (romanMatch) {
-        const romanMap = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
-        return romanMap[romanMatch[1]];
-    }
-    return 1;
-}
-
-// Pomocná funkce pro detekci velikosti souboru v GB z textu nebo vlastnosti
+// Vytáhne velikost přímo z metadat souboru (případně z názvu jako záloha)
 function parseSizeToGB(stream) {
-    // Pokud API vrací velikost přímo jako číslo v bajtech
+    // 1. Pokud backend posílá velikost přímo jako číslo v bajtech (nejlepší případ)
     if (stream.size && typeof stream.size === 'number') {
         return stream.size / (1024 * 1024 * 1024);
     }
     
-    // Jinak se pokusíme velikost vyčíst z názvu souboru (často bývá např. "Film (1.8 GB).mp4" nebo "700 MB")
-    const text = String(stream.size || stream.name || '').toLowerCase();
-    const gbMatch = text.match(/(\d+(?:\.\d+)?)\s*gb/);
-    if (gbMatch) return parseFloat(gbMatch[1]);
+    // 2. Pokud backend posílá velikost jako samostatný textový údaj (např. stream.size = "1.8 GB")
+    if (stream.size && typeof stream.size === 'string') {
+        const sizeText = stream.size.toLowerCase();
+        const gbMatch = sizeText.match(/(\d+(?:[.,]\d+)?)\s*gb/);
+        if (gbMatch) return parseFloat(gbMatch[1].replace(',', '.'));
+        
+        const mbMatch = sizeText.match(/(\d+(?:[.,]\d+)?)\s*mb/);
+        if (mbMatch) return parseFloat(mbMatch[1].replace(',', '.')) / 1024;
+    }
     
-    const mbMatch = text.match(/(\d+(?:\.\d+)?)\s*mb/);
-    if (mbMatch) return parseFloat(mbMatch[1]) / 1024;
+    // 3. Nouzová záloha: Pokud pole size chybí, zkusíme to vyčíst z názvu souboru
+    const nameLower = String(stream.name || '').toLowerCase();
+    const gbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*gb/);
+    if (gbMatchName) return parseFloat(gbMatchName[1].replace(',', '.'));
+    
+    const mbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*mb/);
+    if (mbMatchName) return parseFloat(mbMatchName[1].replace(',', '.')) / 1024;
 
-    return 1.0; // Výchozí odhad, pokud velikost vůbec nezjistíme
+    return 0; // Velikost nelze zjistit
 }
 
+// Zkontroluje, zda stream prokazatelně nepatří jinému dílu (sequelu) než hledaný film
+function isWrongSequel(streamName, movieTitle) {
+    let cleanTitle = String(movieTitle || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
+    let cleanStream = String(streamName || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
+
+    // Odstraníme běžné audio formáty a rozlišení, aby nevznikaly falešné shody (např. 5.1 -> 5. díl)
+    cleanStream = cleanStream.replace(/\b(2\.0|5\.1|7\.1)\b/g, ' ');
+    cleanStream = cleanStream.replace(/\b(480|576|720|1080|2160)p?\b/g, ' ');
+
+    // Zjistíme díl filmu (výchozí je 1)
+    let moviePart = 1;
+    const moviePartMatch = cleanTitle.match(/\b([1-9]|10)\b/);
+    if (moviePartMatch) {
+        moviePart = parseInt(moviePartMatch[1], 10);
+    } else {
+        const movieRomanMatch = cleanTitle.match(/\b(i{1,3}|iv|v|vi{1,3}|ix|x)\b/);
+        if (movieRomanMatch) {
+            const romanMap = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+            moviePart = romanMap[movieRomanMatch[1]];
+        }
+    }
+
+    // Zjistíme díl streamu (výchozí je 1)
+    let streamPart = 1;
+    const streamPartMatch = cleanStream.match(/\b([1-9]|10)\b/);
+    if (streamPartMatch) {
+        streamPart = parseInt(streamPartMatch[1], 10);
+    } else {
+        const streamRomanMatch = cleanStream.match(/\b(i{1,3}|iv|v|vi{1,3}|ix|x)\b/);
+        if (streamRomanMatch) {
+            const romanMap = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+            streamPart = romanMap[streamRomanMatch[1]];
+        }
+    }
+
+    return moviePart !== streamPart;
+}
+
+// Spuštění po načtení stránky
 window.addEventListener('DOMContentLoaded', () => {
     loadLibrary();
     setupPositionTracker();
@@ -91,6 +126,7 @@ async function search() {
     }
 }
 
+// Opravené vykreslení mřížky s okamžitým IMDb plakátem a inteligentním líným načítáním
 function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     targetElement.innerHTML = '';
 
@@ -134,12 +170,13 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     });
 }
 
+// Opravený přechod na detail filmu (Prioritizuje ČSFD, ale drží IMDb jako tvrdou zálohu)
 async function openMovieDetail(movie) {
     currentMovieData = movie;
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     movieDetail.style.display = 'block';
-    document.getElementById('detailContent').innerHTML = '<div class="loader">Vyhledávám data a připravuji streamy...</div>';
+    document.getElementById('detailContent').innerHTML = '<div class="loader">Sosám data z ČSFD/IMDb a připravuji streamy...</div>';
     movieDetail.style.backgroundImage = 'none';
 
     try {
@@ -162,50 +199,57 @@ async function openMovieDetail(movie) {
                     deepDetails.genres = scrapedData.genres || deepDetails.genres;
                     deepDetails.trailerUrl = scrapedData.trailerUrl || '';
                 }
-            } catch (e) { console.log("ČSFD Scraper nedostupný."); }
+            } catch (e) { console.log("ČSFD Scraper nedostupný, přecházím na IMDb metadata."); }
         }
 
-        const targetSequel = extractSequelNumber(movie.title);
-
-        // Načtení surových streamů
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
         const streamData = await streamRes.json();
         const rawStreams = streamData.streams || [];
 
-        // ZDE ZAČÍNÁ NOVÝ BODOVACÍ ENGINE (SCORING SYSTÉM)
+        // --- ZDE PROBÍHÁ BEZPEČNÉ BODOVÁNÍ NA ZÁKLADĚ INFORMACÍ O SOUBORU ---
         activeStreams = rawStreams.map(stream => {
-            let score = 0;
-            const streamNameLower = stream.name.toLowerCase();
+            let score = 100; // Každý soubor začíná na 100 bodech
+            const nameLower = stream.name.toLowerCase();
             const sizeInGB = parseSizeToGB(stream);
 
-            // 1. FILTR VELIKOSTI (Tvůj nápad)
-            if (sizeInGB >= 1.5) {
-                score += 60; // Velký bonus pro plnohodnotné filmy
-            } else if (sizeInGB < 0.4) {
-                score -= 100; // Obří penalizace pro soundtracky, trailery a balast
+            // 1. Penalizace za očividně jiný díl (sequel)
+            if (isWrongSequel(stream.name, movie.title)) {
+                score -= 80;
             }
 
-            // 2. KONTROLA DÍLU (SEQUELU)
-            const streamSequel = extractSequelNumber(stream.name);
-            if (streamSequel === targetSequel) {
-                score += 40; // Odpovídá hledanému dílu
-            } else {
-                score -= 80; // Penalizace, pokud jde očividně o jiný díl (např. v názvu je "2" ale hledáme "1")
+            // 2. Vyhodnocení velikosti souboru z informací
+            if (sizeInGB > 0) {
+                if (sizeInGB >= 1.3) score += 30; // Bonus pro plnohodnotné filmařské releasy
+                if (sizeInGB < 0.4) score -= 60; // Penalizace pro prokazatelně malé soubory (soundtracky)
             }
 
-            // 3. JAZYKOVÝ BONUS (Preferujeme lokalizované verze)
-            if (streamNameLower.includes('cz') || streamNameLower.includes('dabing') || streamNameLower.includes('czdab')) {
+            // 3. Odstranění balastu podle textových klíčových slov
+            if (nameLower.includes('soundtrack') || nameLower.includes('trailer') || nameLower.includes('ukázka') || nameLower.includes('ost')) {
+                score -= 60;
+            }
+
+            // 4. Jazykové preference
+            if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab')) {
                 score += 15;
             }
-            if (streamNameLower.includes('titulky') || streamNameLower.includes('cztit')) {
+            if (nameLower.includes('titulky') || nameLower.includes('cztit')) {
                 score += 5;
             }
 
-            return { ...stream, score: score };
+            // Příprava popisku velikosti do dropdownu
+            let sizeDisplay = "";
+            if (sizeInGB > 0) {
+                sizeDisplay = sizeInGB >= 1.0 ? `[${sizeInGB.toFixed(1)} GB] ` : `[${(sizeInGB * 1024).toFixed(0)} MB] `;
+            } else if (stream.size && typeof stream.size === 'string') {
+                sizeDisplay = `[${stream.size}] `; // Pokud backend vrátil hezký text rovnou
+            }
+
+            return { ...stream, score: score, sizeDisplay: sizeDisplay };
         });
 
-        // Seřadíme streamy sestupně – nejvyšší skóre (nejlepší shoda a velikost) bude nahoře
+        // Seřadíme soubory podle finálního skóre dolů
         activeStreams.sort((a, b) => b.score - a.score);
+        // --- KONEC BODOVÁNÍ ---
 
         currentMovieData.poster = deepDetails.poster || FALLBACK_POSTER;
         currentMovieData.description = deepDetails.description;
@@ -219,22 +263,21 @@ async function openMovieDetail(movie) {
             dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-btn-csfd">ČSFD</a>`;
         }
         if (movie.source === 'imdb' || movie.source === 'both' || movie.imdbLink) {
-            const finalImdbUrl = movie.imdbLink || `https://www.imdb.com/title/${movie.id}`;
+            const finalImdbUrl = movie.imdbLink || `https://www.imdb.com/find?q=${encodeURIComponent(movie.title)}`;
             dbButtons += `<a href="${finalImdbUrl}" target="_blank" class="db-btn-imdb">IMDb</a>`;
         }
 
         let streamDropdownHtml = '';
         if (activeStreams.length > 0) {
-            // Do závorky vedle názvu souboru pro přehlednost vypíšeme vypočítané skóre kvality
             streamDropdownHtml = `
                 <div class="context-select-wrapper">
                     <select id="streamSelect" class="context-arrow">
-                        ${activeStreams.map((s, idx) => `<option value="${idx}">${s.name} (Match: ${s.score}p)</option>`).join('')}
+                        ${activeStreams.map((s, idx) => `<option value="${idx}">${s.sizeDisplay}${s.name}</option>`).join('')}
                     </select>
                 </div>
             `;
         } else {
-            streamDropdownHtml = `<span style="color:var(--text-dim);font-size:14px;">Žádné soubory nebyly nalezeny</span>`;
+            streamDropdownHtml = `<span style="color:var(--text-dim);font-size:14px;">Žádný filmový stream nenalezen</span>`;
         }
 
         const isFav = isMovieInFavorites(movie.title);
@@ -249,12 +292,12 @@ async function openMovieDetail(movie) {
             <h1 class="detail-title">${movie.title}</h1>
             
             <div class="action-row">
-                <button class="btn-play" ${activeStreams.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="startStreaming()">▶ Přehrát</button>
+                <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
                 ${streamDropdownHtml}
                 
                 ${dbButtons}
                 
-                <button class="btn-download" ${activeStreams.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} onclick="startDownloading()">⬇ Stáhnout</button>
+                <button class="btn-download" onclick="startDownloading()">⬇ Stáhnout</button>
             </div>
 
             <div class="control-icons">
@@ -277,7 +320,7 @@ async function openMovieDetail(movie) {
         addToHistory(currentMovieData);
 
     } catch (err) {
-        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při sestavování detailu.</div>';
+        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při sestavování karty s IMDb fallbackem.</div>';
     }
 }
 
@@ -329,10 +372,12 @@ function startDownloading() {
 function setupPositionTracker() {
     videoPlayer.addEventListener('timeupdate', () => {
         if (!currentMovieData || videoPlayer.duration === 0) return;
+        
         const progress = {
             time: videoPlayer.currentTime,
             percent: (videoPlayer.currentTime / videoPlayer.duration) * 100
         };
+        
         localStorage.setItem(`progress_${currentMovieData.title}`, JSON.stringify(progress));
     });
 }
