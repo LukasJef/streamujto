@@ -1,96 +1,87 @@
 export async function onRequest(context) {
   const { searchParams } = new URL(context.request.url);
-  const videoUrlParam = searchParams.get('url');
+  const videoUrl = searchParams.get('url');
 
-  if (!videoUrlParam) {
-    return new Response(JSON.stringify({ error: "Chybí parametr url" }), { status: 400 });
+  if (!videoUrl) {
+    return new Response(JSON.stringify({ error: "Chybí parametr 'url'" }), { 
+      status: 400,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    });
   }
 
-  // ÚDAJE PRO VAŠE PREMIUM PŘIHLÁŠENÍ PODLE VAŠÍ KODI LOGIKY
-  const email = "VÁS_EMAIL"; 
-  const password = "VAŠE_HESLO";
-
-  const baseHeaders = {
-    'user-agent': 'kodi/prehraj.to',
-    'Referer': 'https://prehraj.to/',
-    'Origin': 'https://prehraj.to'
-  };
+  // Zajistíme, že URL vede na prehraj.to
+  const targetUrl = videoUrl.startsWith('http') 
+    ? videoUrl 
+    : `https://prehraj.to${videoUrl}`;
 
   try {
-    // KROK 1: Odeslání POST požadavku pro přihlášení uživatele
-    const loginBody = new URLSearchParams();
-    loginBody.append('email', email);
-    loginBody.append('password', password);
-    loginBody.append('_submit', 'Přihlásit se');
-    loginBody.append('remember', 'on');
-    loginBody.append('_do', 'login-loginForm-submit');
-
-    const loginRes = await fetch('https://prehraj.to/', {
-      method: 'POST',
-      headers: { ...baseHeaders, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: loginBody,
-      redirect: 'manual'
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://prehraj.to/'
+      }
     });
 
-    // Vytáhneme session cookies z odpovědi serveru
-    const setCookies = loginRes.headers.getSetCookie();
-    const cookieHeader = setCookies.map(c => c.split(';')[0]).join('; ');
-
-    // Sestavení kompletní URL adresy videa
-    let targetVideoUrl = videoUrlParam;
-    if (!targetVideoUrl.startsWith('http')) {
-      targetVideoUrl = `https://prehraj.to${targetVideoUrl.startsWith('/') ? '' : '/'}${targetVideoUrl}`;
+    if (!response.ok) {
+      throw new Error(`Selhalo stažení stránky: ${response.status}`);
     }
 
-    // KROK 3: Načtení stránky videa a parsování JavaScriptového bloku sources
-    const pageRes = await fetch(targetVideoUrl, {
-      headers: { ...baseHeaders, 'Cookie': cookieHeader }
-    });
-    const html = await pageRes.text();
+    const html = await response.text();
 
-    // Regulární výraz pro vyhledání bloku zdrojů (odpovídá var sources = [...];)
-    const sourcesRegex = /var sources = \[(.*?)(?=\];)/s;
+    // 1. Regex pro vytažení 'sources' (video soubory)
+    const sourcesRegex = /var\s+sources\s*=\s*(\[[^\]]+\])/;
     const sourcesMatch = html.match(sourcesRegex);
 
+    // 2. Regex pro vytažení 'tracks' (titulky) - nepovinné
+    const tracksRegex = /var\s+tracks\s*=\s*(\[[^\]]+\])/;
+    const tracksMatch = html.match(tracksRegex);
+
     if (!sourcesMatch) {
-      return new Response(JSON.stringify({ error: "V kódu nebylo nalezeno var sources" }), { status: 404 });
+      return new Response(JSON.stringify({ error: "Nepodařilo se najít zdroj videa. Je video dostupné?" }), { 
+        status: 404,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
-    const sourcesBlock = sourcesMatch[1];
-    
-    // Regulární výraz pro vytažení samotné URL adresy souboru z uvozovek
-    const urlRegex = /"(https:\/\/.*?)"/;
-    const urlMatch = sourcesBlock.match(urlRegex);
+    // Vyčištění surového JS objektu na validní JSON string
+    const cleanJsonString = (rawJsArray) => {
+      return rawJsArray
+        .replace(/'/g, '"') // Nahradí jednoduché uvozovky dvojitými
+        .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":'); // Přidá uvozovky kolem klíčů
+    };
 
-    if (!urlMatch) {
-      return new Response(JSON.stringify({ error: "Z bloku nebylo možné vyextrahovat URL" }), { status: 404 });
+    let sources = [];
+    let tracks = [];
+
+    try {
+      sources = JSON.parse(cleanJsonString(sourcesMatch[1]));
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Chyba při zpracování video zdrojů", debug: sourcesMatch[1] }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
-    const baseFileUrl = urlMatch[1];
+    if (tracksMatch) {
+      try {
+        tracks = JSON.parse(cleanJsonString(tracksMatch[1]));
+      } catch (e) {
+        // Ignorujeme chybu titulků
+      }
+    }
 
-    // KROK 4: Premium stahování - přidání parametru ?do=download a zachycení redirectu
-    const premiumDownloadUrl = `${baseFileUrl}?do=download`;
-
-    const streamRes = await fetch(premiumDownloadUrl, {
-      headers: { ...baseHeaders, 'Cookie': cookieHeader },
-      redirect: 'manual' // allow_redirects=False
+    return new Response(JSON.stringify({ sources, tracks }), {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
 
-    // Vytáhneme finální přímý odkaz z hlavičky Location
-    const directStreamUrl = streamRes.headers.get('Location');
-
-    if (directStreamUrl) {
-      return new Response(JSON.stringify({ sources: [{ file: directStreamUrl }] }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    } else {
-      // Pokud Location chybí, vrátíme základní vypreparovanou url adresu
-      return new Response(JSON.stringify({ sources: [{ file: baseFileUrl }] }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    });
   }
 }
