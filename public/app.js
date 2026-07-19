@@ -2,6 +2,16 @@
 let trailerMuted = true;
 let currentMovie = null;
 
+// ==========================================
+// OPRAVA PRO HTML: Zpřístupnění funkce pro starý onclick="searchMovies()"
+// ==========================================
+window.searchMovies = function() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        performSearch(searchInput.value.trim());
+    }
+};
+
 // Inicializace po načtení stránky
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('searchInput');
@@ -9,14 +19,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeDetailBtn = document.getElementById('closeDetailBtn');
     const detailSoundBtn = document.getElementById('detailSoundBtn');
 
-    // Spuštění hledání kliknutím na lupu
+    // Spuštění hledání kliknutím na lupu (jako pojistka)
     if (searchBtn) {
         searchBtn.addEventListener('click', () => {
             performSearch(searchInput.value.trim());
         });
     }
 
-    // Spuštění hledání stiskem klávesy Enter
+    // Spuštění hledání stiskem klávesy Enter v políčku
     if (searchInput) {
         searchInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
