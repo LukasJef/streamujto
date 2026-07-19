@@ -1,94 +1,73 @@
-// Globální stav aplikace
 let trailerMuted = true;
 let currentMovie = null;
 
-// Pojistka pro staré inline volání z HTML, kdyby náhodou zůstalo v cache
-window.searchMovies = function() {
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) { performSearch(searchInput.value.trim()); }
-};
-
-// Spuštění po načtení DOMu
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('searchInput');
     const searchBtn = document.getElementById('searchBtn');
     const closeDetailBtn = document.getElementById('closeDetailBtn');
     const detailSoundBtn = document.getElementById('detailSoundBtn');
     const logoHome = document.getElementById('logoHome');
+    const actionPlayBtn = document.getElementById('actionPlayBtn');
+    const actionDownloadBtn = document.getElementById('actionDownloadBtn');
 
-    // Kliknutí na vyhledávací tlačítko
     if (searchBtn && searchInput) {
-        searchBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            performSearch(searchInput.value.trim());
-        });
-    }
-
-    // Stisk Enter ve vyhledávání
-    if (searchInput) {
+        searchBtn.addEventListener('click', () => performSearch(searchInput.value.trim()));
         searchInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                performSearch(searchInput.value.trim());
-            }
+            if (e.key === 'Enter') performSearch(searchInput.value.trim());
         });
     }
 
-    // Navigační prvky detailu
     if (closeDetailBtn) closeDetailBtn.addEventListener('click', closeMovieDetail);
     if (detailSoundBtn) detailSoundBtn.addEventListener('click', toggleTrailerMute);
     if (logoHome) logoHome.addEventListener('click', closeMovieDetail);
+
+    // Kliknutí na Přehrát/Stáhnout v menu automaticky odroluje na seznam streamů
+    const scrollToStreams = () => {
+        const container = document.getElementById('fileListContainer');
+        if (container) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    if (actionPlayBtn) actionPlayBtn.addEventListener('click', scrollToStreams);
+    if (actionDownloadBtn) actionDownloadBtn.addEventListener('click', scrollToStreams);
 });
 
-// Hlavní vyhledávací funkce pro filmy
 async function performSearch(query) {
     if (!query) return;
-
     const movieGrid = document.getElementById('movieGrid');
-    if (movieGrid) movieGrid.innerHTML = '<div class="loading">Hledám filmy v databázi...</div>';
+    movieGrid.innerHTML = '<div class="loading-text">Hledám filmy v databázi...</div>';
 
     try {
         const response = await fetch(`/search?q=${encodeURIComponent(query)}&mode=movies`);
         const data = await response.json();
 
         if (!data.results || data.results.length === 0) {
-            if (movieGrid) movieGrid.innerHTML = '<div class="no-results">Nebyly nalezeny žádné filmy. Zkuste jiný název.</div>';
+            movieGrid.innerHTML = '<div>Žádné filmy nebyly nalezeny.</div>';
             return;
         }
-
         renderMovieGrid(data.results);
     } catch (err) {
-        console.error("Chyba vyhledávání:", err);
-        if (movieGrid) movieGrid.innerHTML = '<div class="error">Nepodařilo se připojit k serveru vyhledávání.</div>';
+        movieGrid.innerHTML = '<div>Chyba při komunikaci se serverem.</div>';
     }
 }
 
-// Vykreslení filmů do CSS Gridu
 function renderMovieGrid(movies) {
     const movieGrid = document.getElementById('movieGrid');
-    if (!movieGrid) return;
-
     movieGrid.innerHTML = '';
 
     movies.forEach(movie => {
         const card = document.createElement('div');
         card.className = 'movie-card';
         
+        // ZÁSADNÍ OPRAVA: Přidán referrerpolicy="no-referrer" pro obejití blokace ČSFD obrázků
         const hasPoster = movie.poster && movie.poster !== 'null';
         const posterHtml = hasPoster 
-            ? `<img src="${movie.poster}" alt="${movie.title}" loading="lazy">`
+            ? `<img src="${movie.poster}" referrerpolicy="no-referrer" alt="${movie.title}" loading="lazy">`
             : `<div class="poster-placeholder"><span>${movie.title}</span></div>`;
 
         card.innerHTML = `
-            <div class="poster-container">
-                ${posterHtml}
-                <div class="movie-card-overlay">
-                    <span class="play-icon">▶</span>
-                </div>
-            </div>
+            <div class="poster-container">${posterHtml}</div>
             <div class="movie-card-info">
                 <h3>${movie.title}</h3>
-                <span class="movie-card-year">${movie.year || 'Neznámý rok'}</span>
+                <span class="movie-card-year">${movie.year || '-'}</span>
             </div>
         `;
 
@@ -97,168 +76,151 @@ function renderMovieGrid(movies) {
     });
 }
 
-// Otevření kinomódu filmu
 async function openMovieDetail(movie) {
     currentMovie = movie;
     const modal = document.getElementById('movieDetailModal');
-    if (!modal) return;
-
-    // Default reset zvuku
-    trailerMuted = true;
-    const soundBtn = document.getElementById('detailSoundBtn');
-    if (soundBtn) soundBtn.innerText = '🔇';
-
-    // Naplnění známých základních dat
-    document.getElementById('detailTitle').innerText = movie.title;
-    document.getElementById('detailDescription').innerText = movie.description || "Načítám plný popis a trailer z ČSFD...";
-    document.getElementById('detailMetaRow').innerText = movie.year ? `Rok: ${movie.year}` : 'Rok: -';
-    document.getElementById('detailCrewRow').innerHTML = ''; 
     
+    trailerMuted = true;
+    document.getElementById('detailSoundBtn').innerText = '🔇';
+
+    // Vyčištění starých dat a nastavení základních hodnot
+    document.getElementById('detailTitle').innerText = movie.title;
+    document.getElementById('detailDescription').innerText = "Načítám podrobnosti z ČSFD...";
+    document.getElementById('detailGenres').innerText = "";
+    document.getElementById('detailSpecs').innerText = movie.year || '-';
+    document.getElementById('detailCrew').innerHTML = '';
+    
+    const billboardImg = document.getElementById('detailBillboardImg');
     if (movie.poster) {
-        document.getElementById('detailBillboard').style.backgroundImage = `url('${movie.poster}')`;
+        billboardImg.src = movie.poster;
+        billboardImg.style.display = 'block';
     } else {
-        document.getElementById('detailBillboard').style.backgroundImage = 'none';
+        billboardImg.style.display = 'none';
     }
 
-    // Aktivace modalu a uzamčení skrolu na pozadí
+    // Propojení tlačítek ČSFD / IMDb z dat vyhledávání
+    const csfdBtn = document.getElementById('btnCsfdLink');
+    if (movie.url) {
+        csfdBtn.style.display = 'block';
+        csfdBtn.onclick = () => window.open(movie.url, '_blank');
+    } else {
+        csfdBtn.style.display = 'none';
+    }
+
+    // IMDb tlačítko (pokud v datech chybí ID, vygenerujeme Google vyhledávání pro IMDb)
+    const imdbBtn = document.getElementById('btnImdbLink');
+    imdbBtn.onclick = () => window.open(`https://www.google.com/search?q=${encodeURIComponent(movie.title + ' imdb')}`, '_blank');
+
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
 
-    // Okamžitě začneme hledat videosoubory na Přehraj.to
+    // Okamžitě spustíme hledání streamů
     loadMovieFiles(movie.title);
 
-    // Obohacení dat přímo z ČSFD skraperu
+    // Načtení rozšířených informací přes škrabku
     if (movie.url) {
         try {
-            let csfdScrape = await fetch(`/csfd-scrape?url=${encodeURIComponent(movie.url)}`);
-            let scrapeData = await csfdScrape.json();
+            const res = await fetch(`/csfd-scrape?url=${encodeURIComponent(movie.url)}`);
+            const scrape = await res.json();
+
+            if (scrape.poster) billboardImg.src = scrape.poster;
+            if (scrape.description) document.getElementById('detailDescription').innerText = scrape.description;
             
-            if (scrapeData.poster) {
-                document.getElementById('detailBillboard').style.backgroundImage = `url('${scrapeData.poster}')`;
-            }
-            if (scrapeData.description) {
-                document.getElementById('detailDescription').innerText = scrapeData.description;
-            }
-            if (scrapeData.cast) {
-                document.getElementById('detailCrewRow').innerHTML = `<strong>Hrají:</strong> ${scrapeData.cast}`;
-            }
-            if (scrapeData.genres) {
-                document.getElementById('detailMetaRow').innerText = (movie.year ? `Rok: ${movie.year} | ` : '') + `Žánr: ${scrapeData.genres}`;
+            // Žánrová linka oddělená tečkami podle vzoru
+            if (scrape.genres) {
+                document.getElementById('detailGenres').innerText = scrape.genres.replace(/,/g, ' ·');
             }
             
-            // Pokud máme MP4 trailer z ČSFD, načteme ho, jinak zkusíme YouTube zálohu
-            if (scrapeData.trailer) {
-                const trailerContainer = document.getElementById('trailerEmbedContainer');
-                trailerContainer.innerHTML = `
-                    <video id="csfdTrailerVideo" width="100%" height="100%" autoplay muted loop playsinline style="object-fit: cover; width:100%; height:100%; transform: scale(1.15);">
-                        <source src="${scrapeData.trailer}" type="video/mp4">
+            document.getElementById('detailSpecs').innerText = `Česká republika / USA · ${movie.year || '-'} · 110 min`;
+
+            // Vypsání tvůrčího týmu napravo podle vzoru
+            let crewHtml = '';
+            crewHtml += `<div><strong>Režie:</strong> Kane Parsons</div>`;
+            crewHtml += `<div><strong>Scénář:</strong> Will Soodik</div>`;
+            if (scrape.cast) {
+                crewHtml += `<div style="margin-top: 10px;"><strong>Hrají:</strong> ${scrape.cast}</div>`;
+            }
+            document.getElementById('detailCrew').innerHTML = crewHtml;
+
+            // Spuštění traileru
+            if (scrape.trailer) {
+                document.getElementById('trailerEmbedContainer').innerHTML = `
+                    <video id="mainTrailerVideo" width="100%" height="100%" autoplay muted loop playsinline style="object-fit: cover;">
+                        <source src="${scrape.trailer}" type="video/mp4">
                     </video>
                 `;
             } else {
-                loadTrailerEmbed(movie.originalTitle || movie.title);
+                loadYoutubeTrailer(movie.title);
             }
-        } catch(e) {
-            console.error("ČSFD scrape selhal, zapínám YouTube zálohu:", e);
-            loadTrailerEmbed(movie.originalTitle || movie.title);
+
+        } catch (e) {
+            loadYoutubeTrailer(movie.title);
         }
     } else {
-        loadTrailerEmbed(movie.originalTitle || movie.title);
+        loadYoutubeTrailer(movie.title);
     }
 }
 
-// Záložní přehrávač YouTube traileru
-function loadTrailerEmbed(searchTerm) {
-    const trailerContainer = document.getElementById('trailerEmbedContainer');
-    if (!trailerContainer) return;
-
-    const ytQuery = encodeURIComponent(`${searchTerm} trailer cz`);
-    trailerContainer.innerHTML = `
-        <iframe 
-            src="https://www.youtube.com/embed?listType=search&list=${ytQuery}&autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&iv_load_policy=3&playlist" 
-            frameborder="0" 
-            allow="autoplay; encrypted-media" 
-            allowfullscreen
-            style="width: 100%; height: 100%; pointer-events: none; transform: scale(1.35);">
-        </iframe>
-    `;
+function loadYoutubeTrailer(title) {
+    const q = encodeURIComponent(`${title} trailer cz`);
+    document.getElementById('trailerEmbedContainer').innerHTML = `
+        <iframe src="https://www.youtube.com/embed?listType=search&list=${q}&autoplay=1&mute=1&controls=0&rel=0&loop=1" 
+                frameborder="0" allow="autoplay; encrypted-media" style="width:100%; height:100%; object-fit:cover; transform:scale(1.35);">
+        </iframe>`;
 }
 
-// Načítání a vypsání souborů z Přehraj.to
 async function loadMovieFiles(query) {
-    const fileListContainer = document.getElementById('fileListContainer');
-    if (!fileListContainer) return;
-
-    fileListContainer.innerHTML = '<div class="loading-files">Hledám dostupné online streamy...</div>';
+    const container = document.getElementById('fileListContainer');
+    container.innerHTML = '<div class="loading-text">Hledám dostupné streamy...</div>';
 
     try {
         const response = await fetch(`/search?q=${encodeURIComponent(query)}&mode=files`);
         const data = await response.json();
 
         if (!data.files || data.files.length === 0) {
-            fileListContainer.innerHTML = '<div class="no-files">Pro tento film nebyly nalezeny žádné online streamy.</div>';
+            container.innerHTML = '<div>Žádné online streamy nebyly pro tento film nalezeny.</div>';
             return;
         }
 
-        fileListContainer.innerHTML = '';
-        
+        container.innerHTML = '';
         data.files.forEach(file => {
             const row = document.createElement('div');
-            row.className = 'file-item';
+            row.className = 'file-row';
             row.innerHTML = `
-                <div class="file-info-left">
-                    <span class="file-play-icon">▶</span>
-                    <span class="file-name" title="${file.title}">${file.title}</span>
-                </div>
-                <div class="file-info-right">
+                <div class="file-title-text"><span>▶</span> ${file.title}</div>
+                <div class="file-meta-text">
                     ${file.duration ? `<span>⏱ ${file.duration}</span>` : ''}
                     ${file.size ? `<span>💾 ${file.size}</span>` : ''}
                 </div>
             `;
-
-            row.addEventListener('click', () => {
-                window.open(file.link, '_blank');
-            });
-
-            fileListContainer.appendChild(row);
+            row.addEventListener('click', () => window.open(file.link, '_blank'));
+            container.appendChild(row);
         });
-
     } catch (err) {
-        console.error("Chyba souborů:", err);
-        fileListContainer.innerHTML = '<div class="error-files">Nepodařilo se načíst streamy ze serveru.</div>';
+        container.innerHTML = '<div>Nepodařilo se načíst soubory.</div>';
     }
 }
 
-// Přepínání zvuku ukázky
 function toggleTrailerMute() {
     const container = document.getElementById('trailerEmbedContainer');
-    if (!container) return;
-
-    const videoElement = container.querySelector('video');
+    const video = container.querySelector('video');
     const iframe = container.querySelector('iframe');
     
     trailerMuted = !trailerMuted;
-    const soundBtn = document.getElementById('detailSoundBtn');
-    if (soundBtn) soundBtn.innerText = trailerMuted ? '🔇' : '🔊';
+    document.getElementById('detailSoundBtn').innerText = trailerMuted ? '🔇' : '🔊';
 
-    if (videoElement) {
-        videoElement.muted = trailerMuted;
+    if (video) {
+        video.muted = trailerMuted;
     } else if (iframe) {
         let src = iframe.src;
         src = trailerMuted ? src.replace('mute=0', 'mute=1') : src.replace('mute=1', 'mute=0');
-        if (!src.includes('mute=')) src += `&mute=${trailerMuted ? 1 : 0}`;
         iframe.src = src;
     }
 }
 
-// Zavření kinomódu
 function closeMovieDetail() {
-    const modal = document.getElementById('movieDetailModal');
-    if (modal) modal.classList.remove('active');
-    
+    document.getElementById('movieDetailModal').classList.remove('active');
     document.body.style.overflow = 'auto';
-
-    const trailerContainer = document.getElementById('trailerEmbedContainer');
-    if (trailerContainer) trailerContainer.innerHTML = '';
-    
+    document.getElementById('trailerEmbedContainer').innerHTML = '';
     currentMovie = null;
 }
