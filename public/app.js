@@ -6,10 +6,18 @@ const videoPlayer = document.getElementById('videoPlayer');
 let currentFilesList = [];
 let trailerMuted = true;
 
+const placeholderImg = "https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=200";
+
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') searchMovies(); });
 document.addEventListener('DOMContentLoaded', () => { updateCacheMenuLists(); });
 
-// 1. VYHLEDÁNÍ ČISTÝCH FILMŮ
+videoPlayer.onerror = function() {
+    if (videoPlayer.src && videoPlayer.src !== "") {
+        document.getElementById('playerErrorMsg').style.display = 'flex';
+    }
+};
+
+// 1. VYHLEDÁNÍ FILMŮ
 async function searchMovies() {
     const query = searchInput.value.trim();
     if (!query) return;
@@ -32,7 +40,7 @@ async function searchMovies() {
     }
 }
 
-// 2. VYKRESLENÍ MATICE ČISTÝCH KARET
+// 2. VYKRESLENÍ MŘÍŽKY S OCHRANOU PLAKÁTŮ
 function renderMovieGrid(movies) {
     resultsDiv.innerHTML = '';
     resultsDiv.style = "display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; padding: 20px 0;";
@@ -40,8 +48,12 @@ function renderMovieGrid(movies) {
     movies.forEach(movie => {
         const card = document.createElement('div');
         card.style = "width: 160px; background: var(--card-bg); padding: 10px; border-radius: 6px; cursor: pointer; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: transform 0.2s;";
+        
+        const finalPoster = movie.poster ? movie.poster : placeholderImg;
+
+        // Vložen přímý vyhodnocovač chyb onerror pro stoprocentní jistotu zobrazení plakátu
         card.innerHTML = `
-            <img src="${movie.poster || 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?q=80&w=200'}" style="width:100%; height:220px; object-fit:cover; border-radius:4px;">
+            <img src="${finalPoster}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${placeholderImg}';" style="width:100%; height:220px; object-fit:cover; border-radius:4px;">
             <h4 style="font-size:13px; margin: 8px 0 4px 0; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${movie.title}</h4>
             <span style="font-size:11px; color:var(--text-dim);">${movie.year || ''}</span>
         `;
@@ -57,15 +69,18 @@ async function openMovieDetail(movie) {
     document.getElementById('mainSearchBox').style.display = 'none';
     resultsDiv.style.display = 'none';
     detailView.style.display = 'block';
+    document.getElementById('playerErrorMsg').style.display = 'none';
 
-    // Aplikace vizuálů a textů
-    document.getElementById('detailBillboard').style.backgroundImage = `url('${movie.poster}')`;
+    const posterImg = document.getElementById('detailPosterImg');
+    posterImg.onerror = function() { posterImg.src = placeholderImg; };
+    posterImg.src = movie.poster || placeholderImg;
+    posterImg.style.display = 'block';
+
     document.getElementById('detailTitle').innerText = movie.title;
     document.getElementById('detailMetaRow').innerText = movie.year ? `Rok: ${movie.year}` : '';
     document.getElementById('detailCrewRow').innerHTML = movie.actors ? `<strong>Hrají:</strong> ${movie.actors}` : '';
     document.getElementById('detailDescription').innerText = movie.description || "Popis filmu se načítá nebo není k dispozici.";
 
-    // OPRAVA IMDB TLAČÍTKA: Přímý skok na IMDb přes ID z iamidiotareyoutoo. Pokud ID chybí, vyhledá se interně na IMDb (nikdy na Google).
     let imdbId = movie.imdbId || (movie.id && String(movie.id).startsWith('tt') ? movie.id : null);
     let finalImdbUrl = imdbId 
         ? `https://www.imdb.com/title/${imdbId}/` 
@@ -83,11 +98,12 @@ async function openMovieDetail(movie) {
         try {
             let csfdScrape = await fetch(`/csfd-poster?url=${encodeURIComponent(movie.url)}`);
             let scrapeData = await csfdScrape.json();
-            if (scrapeData.poster) document.getElementById('detailBillboard').style.backgroundImage = `url('${scrapeData.poster}')`;
+            if (scrapeData.poster) {
+                posterImg.src = scrapeData.poster;
+            }
         } catch(e){}
     }
 
-    // Správa oblíbených položek uvnitř detailu
     const favBtn = document.getElementById('detailFavBtn');
     let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
     const isFav = favorites.some(f => f.title === movie.title);
@@ -101,22 +117,21 @@ async function openMovieDetail(movie) {
         updateCacheMenuLists();
     };
 
-    // POUŽITÍ ČESKÉHO NÁZVU PRO VYHLEDÁVÁNÍ SOUBORŮ NA PŘEHRAJ.TO
-    loadSourceFiles(movie.title);
-
-    // SPOUŠTĚNÍ TRAILERU PODLE ORIGINÁLNÍHO NÁZVU
+    loadSourceFiles(movie.title, movie.year);
     loadTrailerEmbed(movie.originalTitle || movie.title);
 }
 
-// 4. NAČTENÍ SOUBORŮ DO DROPDOWNŮ
-async function loadSourceFiles(searchQuery) {
+// 4. NAČTENÍ SOUBORŮ Z PŘEHRAJ.TO
+async function loadSourceFiles(searchQuery, year) {
     const streamSel = document.getElementById('streamSelector');
     const downSel = document.getElementById('downloadSelector');
     streamSel.innerHTML = '<option>Hledám streamy...</option>';
     downSel.innerHTML = '<option>...</option>';
 
+    const finalQuery = year ? `${searchQuery} ${year}` : searchQuery;
+
     try {
-        const res = await fetch(`/search?q=${encodeURIComponent(searchQuery)}&mode=files`);
+        const res = await fetch(`/search?q=${encodeURIComponent(finalQuery)}&mode=files`);
         const data = await res.json();
         currentFilesList = data.files || [];
 
@@ -126,7 +141,6 @@ async function loadSourceFiles(searchQuery) {
             return;
         }
 
-        // Naplnění standardního rozbalovacího menu (select)
         const optionsHtml = currentFilesList.map((file, idx) => 
             `<option value="${idx}">${file.title.slice(0, 45)}... (${file.size || file.duration})</option>`
         ).join('');
@@ -142,19 +156,18 @@ function syncSelectedStream() {
     document.getElementById('downloadSelector').value = document.getElementById('streamSelector').value;
 }
 
-// SPOUŠTĚNÍ PROUDU PŘES NOVÝ KODI BACKEND PROCESOR (/get-video)
+// 5. ODESLÁNÍ STREamu DO ELEMENTU VIDEO
 async function playSelectedFile() {
     const idx = document.getElementById('streamSelector').value;
     const file = currentFilesList[idx];
     if (!file) return alert('Není vybrán žádný soubor.');
 
+    document.getElementById('playerErrorMsg').style.display = 'none';
     playerContainer.style.display = 'block';
     videoPlayer.src = '';
-    
     document.getElementById('trailerEmbedContainer').innerHTML = ''; 
 
     try {
-        // Voláme novou trasu, která se přes Premium účet prokouše k Location hlavičce
         const res = await fetch(`/get-video?url=${encodeURIComponent(file.link)}`);
         const data = await res.json();
         if (data.sources?.[0]?.file) {
@@ -207,7 +220,9 @@ function toggleTrailerMute() {
 function closeMovieDetail() {
     document.getElementById('movieDetailView').style.display = 'none';
     document.getElementById('trailerEmbedContainer').innerHTML = '';
+    document.getElementById('playerErrorMsg').style.display = 'none';
     videoPlayer.pause();
+    videoPlayer.src = "";
     document.getElementById('mainSearchBox').style.display = 'flex';
     resultsDiv.style.display = 'flex';
 }
@@ -229,11 +244,11 @@ function updateCacheMenuLists() {
     let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
     
     if (favorites.length === 0) {
-        favList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">Žádné oblíbené filmy.</p>';
+        favList.innerHTML = '<p style="font-size:12px; color:#777; margin:0;">ŽŽádné oblíbené filmy.</p>';
     } else {
         favList.innerHTML = favorites.map(item => `
             <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; cursor:pointer; background:#2a2a2a; padding:6px; border-radius:4px;" onclick="closeMovieDetail(); openMovieDetail(${JSON.stringify(item).replace(/"/g, '&quot;')})">
-                <img src="${item.poster}" style="width:35px; height:50px; object-fit:cover; border-radius:2px;">
+                <img src="${item.poster || placeholderImg}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${placeholderImg}';" style="width:35px; height:50px; object-fit:cover; border-radius:2px;">
                 <div style="flex:1; font-size:12px; font-weight:bold; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</div>
             </div>
         `).join('');
