@@ -17,33 +17,31 @@ export async function onRequest(context) {
   const IMDB_API = `https://imdb.iamidiotareyoutoo.com/search?q=${encodeURIComponent(query)}`;
 
   try {
-    // KROK 1: První ostrý pokus vyhledat film na CZDB
+    // KROK 1: První pokus na CZDB
     let czdbRes = await fetch(CZDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
     let czdbData = czdbRes && czdbRes.ok ? await czdbRes.json() : null;
-    let items = czdbData && czdbData.results ? czdbData.results : [];
+    let czdbItems = czdbData && czdbData.results ? czdbData.results : [];
 
     let imdbResults = [];
 
-    // KROK 2: Pokud CZDB na první pokus nic nevrátí (např. chybí čárka v "Já padouch")
-    if (items.length === 0) {
+    // KROK 2: Pokud CZDB napoprvé nic neví, prohledáme IMDb a zkusíme CZDB znovu s originálním názvem
+    if (czdbItems.length === 0) {
       let imdbRes = await fetch(IMDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
       let imdbData = imdbRes && imdbRes.ok ? await imdbRes.json() : null;
       imdbResults = imdbData && imdbData.description ? imdbData.description : [];
 
-      // KROK 3: Vezmeme originální název z prvního nalezeného IMDb hitu a pošleme ho zpět do CZDB
       if (imdbResults.length > 0) {
         const origTitle = imdbResults[0]["#TITLE"] || imdbResults[0]["#AKA"];
         if (origTitle) {
           let retryCzdbRes = await fetch(`https://api.czdb.cz/search?q=${encodeURIComponent(origTitle)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
           let retryCzdbData = retryCzdbRes && retryCzdbRes.ok ? await retryCzdbRes.json() : null;
-          
           if (retryCzdbData && retryCzdbData.results && retryCzdbData.results.length > 0) {
-            items = retryCzdbData.results; // Našli jsme film na CZDB přes jeho originální název!
+            czdbItems = retryCzdbData.results;
           }
         }
       }
     } else {
-      // BONUS KROK: Pokud CZDB prošel napoprvé, stejně na pozadí dotáhneme IMDb kvůli plakátům a IMDb tlačítku
+      // Pokud CZDB prošlo hned, i tak stáhneme IMDb data kvůli plakátům a informacím
       let imdbRes = await fetch(IMDB_API, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
       let imdbData = imdbRes && imdbRes.ok ? await imdbRes.json() : null;
       imdbResults = imdbData && imdbData.description ? imdbData.description : [];
@@ -52,46 +50,86 @@ export async function onRequest(context) {
     let finalResults = [];
     const normalizeStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    if (items.length > 0) {
-      // Spárování nalezených CZDB filmů s detaily z IMDb (přiřazení plakátů a tlačítek)
-      items.forEach(czItem => {
-        const match = imdbResults.find(imItem => {
-          const sameYear = Math.abs(Number(czItem.rok) - Number(imItem["#YEAR"])) <= 1;
-          const sameTitle = normalizeStr(czItem.original) === normalizeStr(imItem["#TITLE"]) ||
-                            normalizeStr(czItem.nazev) === normalizeStr(imItem["#TITLE"]) ||
-                            normalizeStr(czItem.alt_nazev || '').includes(normalizeStr(imItem["#TITLE"])) ||
-                            normalizeStr(czItem.original || '').includes(normalizeStr(imItem["#TITLE"]));
-          return sameYear && sameTitle;
-        });
+    // KROK 3: Zpracování CZDB výsledků pomocí inteligentního bodovacího párování posterů
+    czdbItems.forEach(czItem => {
+      const czTitle = normalizeStr(czItem.nazev);
+      const czOrig = normalizeStr(czItem.original);
+      const czYear = parseInt(czItem.rok) || 0;
 
-        finalResults.push({
-          id: String(czItem.csfd_id || czItem.id),
-          title: czItem.nazev,
-          originalTitle: czItem.original || (match ? match["#TITLE"] : ''),
-          year: czItem.rok || (match ? match["#YEAR"] : '---'),
-          poster: match ? match["#IMG_POSTER"] : '', // IMDb plakát okamžitě k dispozici
-          actors: match ? match["#ACTORS"] : '',
-          source: match ? 'both' : 'csfd',
-          imdbLink: match ? (match["#IMDB_URL"] || `https://www.imdb.com/title/${match["#IMDB_ID"]}`) : null,
-          csfdLink: czItem.csfd_url || `https://www.csfd.cz/film/${czItem.csfd_id}`
-        });
+      let bestMatch = null;
+      let highestScore = 0;
+
+      imdbResults.forEach(imItem => {
+        const imTitle = normalizeStr(imItem["#TITLE"]);
+        const imAka = normalizeStr(imItem["#AKA"]);
+        const imYear = parseInt(imItem["#YEAR"]) || 0;
+
+        let score = 0;
+        
+        // Hodnocení shody názvů
+        if (czTitle === imTitle || czOrig === imTitle || czTitle === imAka) {
+          score += 10;
+        } else if (czTitle.includes(imTitle) || imTitle.includes(czTitle) || czOrig.includes(imTitle)) {
+          score += 5;
+        }
+
+        // Hodnocení shody roku vydání
+        if (czYear > 0 && imYear > 0) {
+          if (czYear === imYear) score += 5;
+          else if (Math.abs(czYear - imYear) === 1) score += 2;
+        }
+
+        if (score > highestScore) {
+          highestScore = score;
+          bestMatch = imItem;
+        }
       });
-    } else if (imdbResults.length > 0) {
-      // KROK 4: Pokud CZDB selhal i po druhém pokusu, IMDb slouží jako kompletní čistý fallback
-      finalResults = imdbResults.map(imItem => ({
-        id: imItem["#IMDB_ID"] || Math.random().toString(),
-        title: imItem["#TITLE"] || imItem["#AKA"] || "Neznámý název",
-        originalTitle: imItem["#TITLE"] || '',
-        year: imItem["#YEAR"] || '---',
-        poster: imItem["#IMG_POSTER"] || '',
-        actors: imItem["#ACTORS"] || '',
-        source: 'imdb',
-        imdbLink: imItem["#IMDB_URL"] || `https://www.imdb.com/title/${imItem["#IMDB_ID"]}`,
-        csfdLink: null
-      }));
-    }
 
-    return new Response(JSON.stringify({ results: finalResults.slice(0, 14) }), { headers: corsHeaders });
+      // Pokud máme dostatečně spolehlivou shodu (aspoň shoda jména), provážeme je
+      if (highestScore >= 5 && bestMatch) {
+        bestMatch.wasMatched = true; // Označíme jako spárovaný, abychom ho neduplikovali
+      } else {
+        bestMatch = null;
+      }
+
+      finalResults.push({
+        id: String(czItem.csfd_id || czItem.id),
+        title: czItem.nazev,
+        originalTitle: czItem.original || (bestMatch ? bestMatch["#TITLE"] : ''),
+        year: czItem.rok || (bestMatch ? bestMatch["#YEAR"] : '---'),
+        poster: (bestMatch && bestMatch["#IMG_POSTER"]) ? bestMatch["#IMG_POSTER"] : '',
+        actors: bestMatch ? bestMatch["#ACTORS"] : '',
+        source: bestMatch ? 'both' : 'csfd',
+        imdbLink: bestMatch ? (bestMatch["#IMDB_URL"] || `https://www.imdb.com/title/${bestMatch["#IMDB_ID"]}`) : null,
+        csfdLink: czItem.csfd_url || `https://www.csfd.cz/film/${czItem.csfd_id}`
+      });
+    });
+
+    // KROK 4: Přidání všech zbývajících/nespárovaných filmů z IMDb (Garantuje, že se neztratí novinky jako Backrooms 2026)
+    imdbResults.forEach(imItem => {
+      if (!imItem.wasMatched) {
+        finalResults.push({
+          id: imItem["#IMDB_ID"] || Math.random().toString(),
+          title: imItem["#TITLE"] || imItem["#AKA"] || "Neznámý název",
+          originalTitle: imItem["#TITLE"] || '',
+          year: imItem["#YEAR"] || '---',
+          poster: imItem["#IMG_POSTER"] || '',
+          actors: imItem["#ACTORS"] || '',
+          source: 'imdb',
+          imdbLink: imItem["#IMDB_URL"] || `https://www.imdb.com/title/${imItem["#IMDB_ID"]}`,
+          csfdLink: null
+        });
+      }
+    });
+
+    // Seřadíme výsledky tak, aby ty s dostupným streamem (CZDB/Both) byly na předních pozicích
+    finalResults.sort((a, b) => {
+      if (a.source !== 'imdb' && b.source === 'imdb') return -1;
+      if (a.source === 'imdb' && b.source !== 'imdb') return 1;
+      return 0;
+    });
+
+    return new Response(JSON.stringify({ results: finalResults.slice(0, 16) }), { headers: corsHeaders });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
