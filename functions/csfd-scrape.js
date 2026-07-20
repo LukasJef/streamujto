@@ -19,7 +19,7 @@ export async function onRequest(context) {
   }
 
   try {
-    // Extrahujeme číselné ČSFD ID z předané URL (např. z csfd.cz/film/535121-nazev -> 535121)
+    // Extrahujeme číselné ČSFD ID z URL
     const idMatch = url.match(/\/film\/(\d+)/);
     if (!idMatch) {
       throw new Error("Z adresy se nepodařilo získat ID filmu.");
@@ -27,31 +27,41 @@ export async function onRequest(context) {
 
     const movieId = parseInt(idMatch[1], 10);
 
-    // Načtení dat pomocí knihovny node-csfd-api
+    // Načtení dat z node-csfd-api
     const movie = await csfd.movie(movieId);
 
     if (!movie) {
       throw new Error("Film nebyl na ČSFD nalezen.");
     }
 
-    // Poznáme, zda jde o seriál (podle typu nebo žánru)
-    const isSeries = 
-      movie.type === 'TV_SERIES' || 
-      movie.type === 'TV_SHOW' || 
-      (movie.genres && movie.genres.some(g => g.toLowerCase().includes('seriál')));
+    const description = (movie.descriptions && movie.descriptions.length > 0) 
+      ? movie.descriptions[0] 
+      : (movie.plot || "Popis není k dispozici.");
 
-    // Příprava dat pro frontend v přesně takové struktuře, jakou očekává app.js
+    // Robustní detekce seriálu z node-csfd-api
+    const typeLower = String(movie.type || '').toLowerCase();
+    const descLower = String(description).toLowerCase();
+
+    const isSeries = 
+      typeLower.includes('series') || 
+      typeLower.includes('tv') || 
+      typeLower.includes('show') || 
+      typeLower.includes('season') || 
+      typeLower.includes('episode') ||
+      (movie.genres && movie.genres.some(g => g.toLowerCase().includes('seriál'))) ||
+      descLower.includes('sezón') ||
+      descLower.includes('seriál');
+
+    // Příprava dat pro frontend
     const result = {
       poster: movie.poster || null,
-      description: (movie.descriptions && movie.descriptions.length > 0) 
-        ? movie.descriptions[0] 
-        : (movie.plot || "Popis filmu není k dispozici."),
+      description: description,
       cast: movie.creators?.actors 
         ? movie.creators.actors.slice(0, 12).map(actor => actor.name).join(', ') 
         : "",
       genres: movie.genres ? movie.genres.join(', ') : "Neznámý žánr",
       rating: movie.rating || null,
-      isSeries: Boolean(isSeries) // <-- SEM JSME PŘIDALI TENTO ŘÁDEK
+      isSeries: Boolean(isSeries)
     };
 
     return new Response(JSON.stringify(result), { headers: corsHeaders });
