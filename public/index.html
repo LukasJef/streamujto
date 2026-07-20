@@ -307,24 +307,10 @@
     <div class="container">
         <h1 class="logo" onclick="showMainPage()">MOVIORA</h1>
 
-        <div class="search-box-container">
-    <div class="search-main-row">
-        <input type="text" id="searchQuery" placeholder="Hledat film nebo seriál (např. Slunce, seno, jahody)..." autocomplete="off">
-        <button id="searchBtn" onclick="search()">Hledat</button>
-    </div>
-    
-    <!-- Filtry vyhledávání -->
-    <div class="search-filters">
-        <label class="filter-item">
-            <span>Rok:</span>
-            <input type="number" id="filterYear" placeholder="např. 1984" min="1900" max="2030">
-        </label>
-        <label class="filter-item checkbox-label">
-            <input type="checkbox" id="filterExact">
-            <span>Pouze přesná shoda (celá slova)</span>
-        </label>
-    </div>
-</div>
+        <div class="search-box">
+            <input type="text" id="searchQuery" placeholder="Zadejte název filmu...">
+            <button class="btn-search" onclick="search()">Hledat</button>
+        </div>
 
         <!-- Video přehrávač -->
         <div id="playerContainer">
