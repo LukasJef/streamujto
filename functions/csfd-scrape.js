@@ -34,6 +34,12 @@ export async function onRequest(context) {
       throw new Error("Film nebyl na ČSFD nalezen.");
     }
 
+    // Poznáme, zda jde o seriál (podle typu nebo žánru)
+    const isSeries = 
+      movie.type === 'TV_SERIES' || 
+      movie.type === 'TV_SHOW' || 
+      (movie.genres && movie.genres.some(g => g.toLowerCase().includes('seriál')));
+
     // Příprava dat pro frontend v přesně takové struktuře, jakou očekává app.js
     const result = {
       poster: movie.poster || null,
@@ -44,7 +50,8 @@ export async function onRequest(context) {
         ? movie.creators.actors.slice(0, 12).map(actor => actor.name).join(', ') 
         : "",
       genres: movie.genres ? movie.genres.join(', ') : "Neznámý žánr",
-      rating: movie.rating || null
+      rating: movie.rating || null,
+      isSeries: Boolean(isSeries) // <-- SEM JSME PŘIDALI TENTO ŘÁDEK
     };
 
     return new Response(JSON.stringify(result), { headers: corsHeaders });
