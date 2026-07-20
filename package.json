@@ -1,0 +1,8 @@
+{
+  "name": "filmovy-web",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "node-csfd-api": "^5.5.0"
+  }
+}
