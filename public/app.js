@@ -14,14 +14,11 @@ const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa43
 
 // --- POMOCNÉ FUNKCE PRO INTELIGENTNÍ ŘAZENÍ STREAMŮ ---
 
-// Vytáhne velikost přímo z metadat souboru (případně z názvu jako záloha)
 function parseSizeToGB(stream) {
-    // 1. Pokud backend posílá velikost přímo jako číslo v bajtech (nejlepší případ)
     if (stream.size && typeof stream.size === 'number') {
         return stream.size / (1024 * 1024 * 1024);
     }
     
-    // 2. Pokud backend posílá velikost jako samostatný textový údaj (např. stream.size = "1.8 GB")
     if (stream.size && typeof stream.size === 'string') {
         const sizeText = stream.size.toLowerCase();
         const gbMatch = sizeText.match(/(\d+(?:[.,]\d+)?)\s*gb/);
@@ -31,7 +28,6 @@ function parseSizeToGB(stream) {
         if (mbMatch) return parseFloat(mbMatch[1].replace(',', '.')) / 1024;
     }
     
-    // 3. Nouzová záloha: Pokud pole size chybí, zkusíme to vyčíst z názvu souboru
     const nameLower = String(stream.name || '').toLowerCase();
     const gbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*gb/);
     if (gbMatchName) return parseFloat(gbMatchName[1].replace(',', '.'));
@@ -39,19 +35,16 @@ function parseSizeToGB(stream) {
     const mbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*mb/);
     if (mbMatchName) return parseFloat(mbMatchName[1].replace(',', '.')) / 1024;
 
-    return 0; // Velikost nelze zjistit
+    return 0;
 }
 
-// Zkontroluje, zda stream prokazatelně nepatří jinému dílu (sequelu) než hledaný film
 function isWrongSequel(streamName, movieTitle) {
     let cleanTitle = String(movieTitle || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
     let cleanStream = String(streamName || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
 
-    // Odstraníme běžné audio formáty a rozlišení, aby nevznikaly falešné shody (např. 5.1 -> 5. díl)
     cleanStream = cleanStream.replace(/\b(2\.0|5\.1|7\.1)\b/g, ' ');
     cleanStream = cleanStream.replace(/\b(480|576|720|1080|2160)p?\b/g, ' ');
 
-    // Zjistíme díl filmu (výchozí je 1)
     let moviePart = 1;
     const moviePartMatch = cleanTitle.match(/\b([1-9]|10)\b/);
     if (moviePartMatch) {
@@ -64,7 +57,6 @@ function isWrongSequel(streamName, movieTitle) {
         }
     }
 
-    // Zjistíme díl streamu (výchozí je 1)
     let streamPart = 1;
     const streamPartMatch = cleanStream.match(/\b([1-9]|10)\b/);
     if (streamPartMatch) {
@@ -126,17 +118,22 @@ async function search() {
     }
 }
 
-// Opravené vykreslení mřížky s okamžitým IMDb plakátem a inteligentním líným načítáním
+// Vykreslení mřížky výsledků
 function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     targetElement.innerHTML = '';
 
     movies.forEach(movie => {
+        // Podpora pro název z CZDB (nazev/title) a rok (rok/year)
+        const movieTitle = movie.nazev || movie.title;
+        const movieYear = movie.rok || movie.year || '';
+        const csfdUrl = movie.csfd_url || movie.csfdLink;
+
         const card = document.createElement('div');
         card.className = "movie-card";
-        card.id = `card-${btoa(encodeURIComponent(movie.title)).replace(/=/g, '')}`;
-        card.onclick = () => openMovieDetail(movie);
+        card.id = `card-${btoa(encodeURIComponent(movieTitle)).replace(/=/g, '')}`;
+        card.onclick = () => openMovieDetail({ ...movie, title: movieTitle, year: movieYear, csfdLink: csfdUrl });
 
-        const progress = getWatchProgress(movie.title);
+        const progress = getWatchProgress(movieTitle);
         let progressBarHtml = '';
         if (progress && progress.percent > 1) {
             progressBarHtml = `
@@ -149,15 +146,16 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         card.innerHTML = `
             <img id="img-${card.id}" src="${movie.poster || FALLBACK_POSTER}" referrerpolicy="no-referrer" onerror="this.src='${FALLBACK_POSTER}';">
             <div class="card-info">
-                <h3>${movie.title}</h3>
-                <p>${movie.year}</p>
+                <h3>${movieTitle}</h3>
+                <p>${movieYear}</p>
             </div>
             ${progressBarHtml}
         `;
         targetElement.appendChild(card);
 
-        if (lazyLoadPosters && movie.csfdLink) {
-            fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`)
+        // Líné načítání plakátů z ČSFD přes nový endpoint csfd-scrape
+        if (lazyLoadPosters && csfdUrl) {
+            fetch(`/csfd-scrape?url=${encodeURIComponent(csfdUrl)}`)
                 .then(res => res.json())
                 .then(details => {
                     if (details.poster && details.poster.trim() !== "") {
@@ -170,88 +168,81 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     });
 }
 
-// Opravený přechod na detail filmu (Prioritizuje ČSFD, ale drží IMDb jako tvrdou zálohu)
+// Přechod na detail filmu s napojením na csfd-scrape a node-csfd-api
 async function openMovieDetail(movie) {
     currentMovieData = movie;
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     movieDetail.style.display = 'block';
-    document.getElementById('detailContent').innerHTML = '<div class="loader">Sosám data z ČSFD/IMDb a připravuji streamy...</div>';
+    document.getElementById('detailContent').innerHTML = '<div class="loader">Sosám data z ČSFD a připravuji streamy...</div>';
     movieDetail.style.backgroundImage = 'none';
+
+    const csfdTargetUrl = movie.csfd_url || movie.csfdLink;
 
     try {
         let deepDetails = { 
-            poster: movie.poster, 
+            poster: movie.poster || FALLBACK_POSTER, 
             description: 'Popis filmu se připravuje.', 
-            actors: movie.actors, 
+            actors: movie.actors || '', 
             genres: 'Film', 
+            rating: null,
             trailerUrl: '' 
         };
         
-        if (movie.csfdLink) {
+        // Zavoláme náš nový scraper s node-csfd-api
+        if (csfdTargetUrl) {
             try {
-                const detailRes = await fetch(`/get-movie-details?url=${encodeURIComponent(movie.csfdLink)}`);
+                const detailRes = await fetch(`/csfd-scrape?url=${encodeURIComponent(csfdTargetUrl)}`);
                 if (detailRes.ok) {
                     const scrapedData = await detailRes.json();
-                    deepDetails.poster = (scrapedData.poster && scrapedData.poster.trim() !== "") ? scrapedData.poster : movie.poster;
+                    deepDetails.poster = (scrapedData.poster && scrapedData.poster.trim() !== "") ? scrapedData.poster : deepDetails.poster;
                     deepDetails.description = scrapedData.description || deepDetails.description;
-                    deepDetails.actors = scrapedData.actors || deepDetails.actors;
+                    deepDetails.actors = scrapedData.cast || deepDetails.actors;
                     deepDetails.genres = scrapedData.genres || deepDetails.genres;
-                    deepDetails.trailerUrl = scrapedData.trailerUrl || '';
+                    deepDetails.rating = scrapedData.rating || null;
                 }
-            } catch (e) { console.log("ČSFD Scraper nedostupný, přecházím na IMDb metadata."); }
+            } catch (e) { 
+                console.log("ČSFD Scraper nedostupný."); 
+            }
         }
 
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
         const streamData = await streamRes.json();
         const rawStreams = streamData.streams || [];
 
-        // --- ZDE PROBÍHÁ BEZPEČNÉ BODOVÁNÍ NA ZÁKLADĚ INFORMACÍ O SOUBORU ---
+        // --- BODOVÁNÍ A ŘAZENÍ STREAMŮ ---
         activeStreams = rawStreams.map(stream => {
-            let score = 100; // Každý soubor začíná na 100 bodech
+            let score = 100;
             const nameLower = stream.name.toLowerCase();
             const sizeInGB = parseSizeToGB(stream);
 
-            // 1. Penalizace za očividně jiný díl (sequel)
-            if (isWrongSequel(stream.name, movie.title)) {
-                score -= 80;
-            }
+            if (isWrongSequel(stream.name, movie.title)) score -= 80;
 
-            // 2. Vyhodnocení velikosti souboru z informací
             if (sizeInGB > 0) {
-                if (sizeInGB >= 1.3) score += 30; // Bonus pro plnohodnotné filmařské releasy
-                if (sizeInGB < 0.4) score -= 60; // Penalizace pro prokazatelně malé soubory (soundtracky)
+                if (sizeInGB >= 1.3) score += 30;
+                if (sizeInGB < 0.4) score -= 60;
             }
 
-            // 3. Odstranění balastu podle textových klíčových slov
             if (nameLower.includes('soundtrack') || nameLower.includes('trailer') || nameLower.includes('ukázka') || nameLower.includes('ost')) {
                 score -= 60;
             }
 
-            // 4. Jazykové preference
-            if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab')) {
-                score += 15;
-            }
-            if (nameLower.includes('titulky') || nameLower.includes('cztit')) {
-                score += 5;
-            }
+            if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab')) score += 15;
+            if (nameLower.includes('titulky') || nameLower.includes('cztit')) score += 5;
 
-            // Příprava popisku velikosti do dropdownu
             let sizeDisplay = "";
             if (sizeInGB > 0) {
                 sizeDisplay = sizeInGB >= 1.0 ? `[${sizeInGB.toFixed(1)} GB] ` : `[${(sizeInGB * 1024).toFixed(0)} MB] `;
             } else if (stream.size && typeof stream.size === 'string') {
-                sizeDisplay = `[${stream.size}] `; // Pokud backend vrátil hezký text rovnou
+                sizeDisplay = `[${stream.size}] `;
             }
 
             return { ...stream, score: score, sizeDisplay: sizeDisplay };
         });
 
-        // Seřadíme soubory podle finálního skóre dolů
         activeStreams.sort((a, b) => b.score - a.score);
-        // --- KONEC BODOVÁNÍ ---
 
-        currentMovieData.poster = deepDetails.poster || FALLBACK_POSTER;
+        currentMovieData.poster = deepDetails.poster;
         currentMovieData.description = deepDetails.description;
         currentMovieData.actors = deepDetails.actors;
         currentMovieData.genres = deepDetails.genres;
@@ -259,12 +250,8 @@ async function openMovieDetail(movie) {
         movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
 
         let dbButtons = '';
-        if (movie.source === 'csfd' || movie.source === 'both') {
-            dbButtons += `<a href="${movie.csfdLink}" target="_blank" class="db-btn-csfd">ČSFD</a>`;
-        }
-        if (movie.source === 'imdb' || movie.source === 'both' || movie.imdbLink) {
-            const finalImdbUrl = movie.imdbLink || `https://www.imdb.com/find?q=${encodeURIComponent(movie.title)}`;
-            dbButtons += `<a href="${finalImdbUrl}" target="_blank" class="db-btn-imdb">IMDb</a>`;
+        if (csfdTargetUrl) {
+            dbButtons += `<a href="${csfdTargetUrl}" target="_blank" class="db-btn-csfd">ČSFD ${deepDetails.rating ? `(${deepDetails.rating}%)` : ''}</a>`;
         }
 
         let streamDropdownHtml = '';
@@ -283,36 +270,27 @@ async function openMovieDetail(movie) {
         const isFav = isMovieInFavorites(movie.title);
 
         document.getElementById('detailContent').innerHTML = `
-            ${deepDetails.trailerUrl ? `
-                <video id="bgTrailerVideo" autoplay loop muted playsinline style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:-1; opacity:0.25;">
-                    <source src="${deepDetails.trailerUrl}" type="video/mp4">
-                </video>
-            ` : ''}
-
             <h1 class="detail-title">${movie.title}</h1>
             
             <div class="action-row">
                 <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
                 ${streamDropdownHtml}
-                
                 ${dbButtons}
-                
                 <button class="btn-download" onclick="startDownloading()">⬇ Stáhnout</button>
             </div>
 
             <div class="control-icons">
                 <button id="favBtn" class="icon-circle" onclick="toggleFavoriteCurrent()">${isFav ? '★' : '＋'}</button>
-                <button id="muteBtn" class="icon-circle" onclick="toggleMuteTrailer()">🔇</button>
             </div>
 
             <div class="meta-layout">
                 <div class="meta-left">
                     <p style="color:var(--accent); font-weight:bold; font-size:18px; margin-bottom:10px;">${deepDetails.genres}</p>
-                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year} • <strong>Spárováno přes:</strong> ${movie.source.toUpperCase()}</p>
+                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year || 'Neznámý'}</p>
                     <p style="color:var(--text-dim); line-height:1.6; font-size:15px;">${deepDetails.description}</p>
                 </div>
                 <div class="meta-right">
-                    <p><strong>Obsazení a tvorba:</strong><br><span style="color:var(--text-dim); font-size:14px;">${deepDetails.actors || 'Neznámé.'}</span></p>
+                    <p><strong>Hrají / Tvorba:</strong><br><span style="color:var(--text-dim); font-size:14px;">${deepDetails.actors || 'Neznámé.'}</span></p>
                 </div>
             </div>
         `;
@@ -320,7 +298,7 @@ async function openMovieDetail(movie) {
         addToHistory(currentMovieData);
 
     } catch (err) {
-        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při sestavování karty s IMDb fallbackem.</div>';
+        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při načítání detailu filmu.</div>';
     }
 }
 
@@ -431,13 +409,4 @@ function toggleFavoriteCurrent() {
         if (btn) btn.innerText = '★';
     }
     localStorage.setItem('favorites', JSON.stringify(favorites));
-}
-
-function toggleMuteTrailer() {
-    const bgVideo = document.getElementById('bgTrailerVideo');
-    const btn = document.getElementById('muteBtn');
-    if (!bgVideo) return;
-
-    bgVideo.muted = !bgVideo.muted;
-    btn.innerText = bgVideo.muted ? "🔇" : "🔊";
 }
