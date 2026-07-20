@@ -47,16 +47,10 @@ export async function onRequest(context) {
         seenLinks.add(link);
 
         const rawTitle = titleMatch[1].replace(/<[^>]*>/g, '').trim();
-        
-        // BLOKACE SERIÁLOVÝCH JEDNOTEK (S01E09, s01e12, atd.)
-        if (/[sS]\d{2}[eE]\d{2}/.test(rawTitle) || /epizoda|série/i.test(rawTitle)) {
-          continue; 
-        }
 
         const size = sizeMatch ? sizeMatch[1].replace(/<[^>]*>/g, '').trim() : 'Neznámá velikost';
         const duration = durationMatch ? durationMatch[1].replace(/<[^>]*>/g, '').trim() : '';
 
-        // Detekce kvality a dabingu pro hezčí UI bez .mkv přípon
         let label = "Standardní kvalita";
         if (/1080p/i.test(rawTitle)) label = "HD rozlišení (1080p)";
         else if (/720p/i.test(rawTitle)) label = "SD rozlišení (720p)";
