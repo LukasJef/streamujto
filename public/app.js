@@ -178,6 +178,8 @@ async function openMovieDetail(movie) {
     movieDetail.style.backgroundImage = 'none';
 
     const csfdTargetUrl = movie.csfd_url || movie.csfdLink;
+    // === NOVOST PRO IMDB ===
+    const imdbTargetUrl = movie.imdbLink || movie.imdb_url || movie.imdbUrl; 
 
     try {
         let deepDetails = { 
@@ -249,9 +251,13 @@ async function openMovieDetail(movie) {
 
         movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
 
+        // === NOVOST PRO IMDB: Sestavení tlačítek ===
         let dbButtons = '';
         if (csfdTargetUrl) {
-            dbButtons += `<a href="${csfdTargetUrl}" target="_blank" class="db-btn-csfd">ČSFD ${deepDetails.rating ? `(${deepDetails.rating}%)` : ''}</a>`;
+            dbButtons += `<a href="${csfdTargetUrl}" target="_blank" rel="noopener" class="db-btn-csfd">ČSFD ${deepDetails.rating ? `(${deepDetails.rating}%)` : ''}</a>`;
+        }
+        if (imdbTargetUrl) {
+            dbButtons += `<a href="${imdbTargetUrl}" target="_blank" rel="noopener" class="db-btn-imdb">IMDb</a>`;
         }
 
         let streamDropdownHtml = '';
