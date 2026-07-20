@@ -9,10 +9,22 @@ const resumeToast = document.getElementById('resumeToast');
 
 let activeStreams = [];
 let currentMovieData = null;
+let currentSeason = 1;
+let currentEpisode = 1;
 
 const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&auto=format&fit=crop';
 
-// --- POMOCNÉ FUNKCE PRO INTELIGENTNÍ ŘAZENÍ STREAMŮ ---
+// --- POMOCNÉ FUNKCE PRO BODOVÁNÍ A KLÍČE PRO PROGRESS ---
+
+function getWatchKey() {
+    if (!currentMovieData) return '';
+    if (currentMovieData.isSeries) {
+        const s = String(currentSeason).padStart(2, '0');
+        const e = String(currentEpisode).padStart(2, '0');
+        return `progress_${currentMovieData.title}_S${s}E${e}`;
+    }
+    return `progress_${currentMovieData.title}`;
+}
 
 function parseSizeToGB(stream) {
     if (stream.size && typeof stream.size === 'number') {
@@ -39,6 +51,8 @@ function parseSizeToGB(stream) {
 }
 
 function isWrongSequel(streamName, movieTitle) {
+    if (currentMovieData && currentMovieData.isSeries) return false;
+
     let cleanTitle = String(movieTitle || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
     let cleanStream = String(streamName || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
 
@@ -49,24 +63,12 @@ function isWrongSequel(streamName, movieTitle) {
     const moviePartMatch = cleanTitle.match(/\b([1-9]|10)\b/);
     if (moviePartMatch) {
         moviePart = parseInt(moviePartMatch[1], 10);
-    } else {
-        const movieRomanMatch = cleanTitle.match(/\b(i{1,3}|iv|v|vi{1,3}|ix|x)\b/);
-        if (movieRomanMatch) {
-            const romanMap = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
-            moviePart = romanMap[movieRomanMatch[1]];
-        }
     }
 
     let streamPart = 1;
     const streamPartMatch = cleanStream.match(/\b([1-9]|10)\b/);
     if (streamPartMatch) {
         streamPart = parseInt(streamPartMatch[1], 10);
-    } else {
-        const streamRomanMatch = cleanStream.match(/\b(i{1,3}|iv|v|vi{1,3}|ix|x)\b/);
-        if (streamRomanMatch) {
-            const romanMap = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
-            streamPart = romanMap[streamRomanMatch[1]];
-        }
     }
 
     return moviePart !== streamPart;
@@ -123,7 +125,6 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     targetElement.innerHTML = '';
 
     movies.forEach(movie => {
-        // Podpora pro název z CZDB (nazev/title) a rok (rok/year)
         const movieTitle = movie.nazev || movie.title;
         const movieYear = movie.rok || movie.year || '';
         const csfdUrl = movie.csfd_url || movie.csfdLink;
@@ -133,7 +134,7 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         card.id = `card-${btoa(encodeURIComponent(movieTitle)).replace(/=/g, '')}`;
         card.onclick = () => openMovieDetail({ ...movie, title: movieTitle, year: movieYear, csfdLink: csfdUrl });
 
-        const progress = getWatchProgress(movieTitle);
+        const progress = getWatchProgressForCard(movieTitle, movie.isSeries);
         let progressBarHtml = '';
         if (progress && progress.percent > 1) {
             progressBarHtml = `
@@ -153,7 +154,6 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         `;
         targetElement.appendChild(card);
 
-        // Líné načítání plakátů z ČSFD přes nový endpoint csfd-scrape
         if (lazyLoadPosters && csfdUrl) {
             fetch(`/csfd-scrape?url=${encodeURIComponent(csfdUrl)}`)
                 .then(res => res.json())
@@ -168,7 +168,7 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
     });
 }
 
-// Přechod na detail filmu s napojením na csfd-scrape a node-csfd-api
+// Přechod na detail filmu / seriálu
 async function openMovieDetail(movie) {
     currentMovieData = movie;
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -178,7 +178,6 @@ async function openMovieDetail(movie) {
     movieDetail.style.backgroundImage = 'none';
 
     const csfdTargetUrl = movie.csfd_url || movie.csfdLink;
-    // === NOVOST PRO IMDB ===
     const imdbTargetUrl = movie.imdbLink || movie.imdb_url || movie.imdbUrl; 
 
     try {
@@ -188,10 +187,9 @@ async function openMovieDetail(movie) {
             actors: movie.actors || '', 
             genres: 'Film', 
             rating: null,
-            trailerUrl: '' 
+            isSeries: false
         };
         
-        // Zavoláme náš nový scraper s node-csfd-api
         if (csfdTargetUrl) {
             try {
                 const detailRes = await fetch(`/csfd-scrape?url=${encodeURIComponent(csfdTargetUrl)}`);
@@ -202,23 +200,121 @@ async function openMovieDetail(movie) {
                     deepDetails.actors = scrapedData.cast || deepDetails.actors;
                     deepDetails.genres = scrapedData.genres || deepDetails.genres;
                     deepDetails.rating = scrapedData.rating || null;
+                    deepDetails.isSeries = scrapedData.isSeries || false;
                 }
             } catch (e) { 
                 console.log("ČSFD Scraper nedostupný."); 
             }
         }
 
-        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(movie.title)}`);
+        currentMovieData.isSeries = deepDetails.isSeries;
+        currentMovieData.poster = deepDetails.poster;
+        currentMovieData.description = deepDetails.description;
+        currentMovieData.actors = deepDetails.actors;
+        currentMovieData.genres = deepDetails.genres;
+
+        // Pokud jde o seriál, načteme naposledy zvolenou řadu/díl
+        if (currentMovieData.isSeries) {
+            const lastEp = JSON.parse(localStorage.getItem(`last_ep_${currentMovieData.title}`)) || { season: 1, episode: 1 };
+            currentSeason = lastEp.season;
+            currentEpisode = lastEp.episode;
+        }
+
+        movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
+
+        let dbButtons = '';
+        if (csfdTargetUrl) {
+            dbButtons += `<a href="${csfdTargetUrl}" target="_blank" rel="noopener" class="db-btn-csfd">ČSFD ${deepDetails.rating ? `(${deepDetails.rating}%)` : ''}</a>`;
+        }
+        if (imdbTargetUrl) {
+            dbButtons += `<a href="${imdbTargetUrl}" target="_blank" rel="noopener" class="db-btn-imdb">IMDb</a>`;
+        }
+
+        let seriesControlsHtml = '';
+        if (currentMovieData.isSeries) {
+            seriesControlsHtml = `
+                <div class="series-select-wrapper">
+                    <label>Řada:</label>
+                    <select id="seasonSelect" onchange="onEpisodeOrSeasonChange()">
+                        ${[...Array(15).keys()].map(i => `<option value="${i+1}" ${i+1 === currentSeason ? 'selected' : ''}>${i+1}</option>`).join('')}
+                    </select>
+                    
+                    <label>Díl:</label>
+                    <select id="episodeSelect" onchange="onEpisodeOrSeasonChange()">
+                        ${[...Array(30).keys()].map(i => `<option value="${i+1}" ${i+1 === currentEpisode ? 'selected' : ''}>${i+1}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        }
+
+        const isFav = isMovieInFavorites(movie.title);
+
+        document.getElementById('detailContent').innerHTML = `
+            <h1 class="detail-title">${movie.title}</h1>
+            
+            <div class="action-row">
+                <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
+                ${seriesControlsHtml}
+                <div id="streamSelectWrapper">
+                    <span style="color:var(--text-dim);font-size:14px;">Načítám streamy...</span>
+                </div>
+                ${dbButtons}
+                <button class="btn-download" onclick="startDownloading()">⬇ Stáhnout</button>
+            </div>
+
+            <div class="control-icons">
+                <button id="favBtn" class="icon-circle" onclick="toggleFavoriteCurrent()">${isFav ? '★' : '＋'}</button>
+            </div>
+
+            <div class="meta-layout">
+                <div class="meta-left">
+                    <p style="color:var(--accent); font-weight:bold; font-size:18px; margin-bottom:10px;">${deepDetails.genres}</p>
+                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year || 'Neznámý'}</p>
+                    <p style="color:var(--text-dim); line-height:1.6; font-size:15px;">${deepDetails.description}</p>
+                </div>
+                <div class="meta-right">
+                    <p><strong>Hrají / Tvorba:</strong><br><span style="color:var(--text-dim); font-size:14px;">${deepDetails.actors || 'Neznámé.'}</span></p>
+                </div>
+            </div>
+        `;
+
+        // Načteme streamy pro zvolený film nebo konkrétní díl seriálu
+        await fetchAndRenderStreams();
+        addToHistory(currentMovieData);
+
+    } catch (err) {
+        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při načítání detailu filmu.</div>';
+    }
+}
+
+// Vyhledání a obnova dropdownu se streamy
+async function fetchAndRenderStreams() {
+    const streamWrapper = document.getElementById('streamSelectWrapper');
+    if (!streamWrapper) return;
+
+    streamWrapper.innerHTML = '<span style="color:var(--text-dim);font-size:14px;">Hledám streamy...</span>';
+
+    let searchQuery = currentMovieData.title;
+    if (currentMovieData.isSeries) {
+        const s = String(currentSeason).padStart(2, '0');
+        const e = String(currentEpisode).padStart(2, '0');
+        searchQuery += ` S${s}E${e}`;
+
+        // Uložíme do paměti naposledy vybranou řadu/díl
+        localStorage.setItem(`last_ep_${currentMovieData.title}`, JSON.stringify({ season: currentSeason, episode: currentEpisode }));
+    }
+
+    try {
+        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}`);
         const streamData = await streamRes.json();
         const rawStreams = streamData.streams || [];
 
-        // --- BODOVÁNÍ A ŘAZENÍ STREAMŮ ---
         activeStreams = rawStreams.map(stream => {
             let score = 100;
             const nameLower = stream.name.toLowerCase();
             const sizeInGB = parseSizeToGB(stream);
 
-            if (isWrongSequel(stream.name, movie.title)) score -= 80;
+            if (isWrongSequel(stream.name, currentMovieData.title)) score -= 80;
 
             if (sizeInGB > 0) {
                 if (sizeInGB >= 1.3) score += 30;
@@ -244,25 +340,8 @@ async function openMovieDetail(movie) {
 
         activeStreams.sort((a, b) => b.score - a.score);
 
-        currentMovieData.poster = deepDetails.poster;
-        currentMovieData.description = deepDetails.description;
-        currentMovieData.actors = deepDetails.actors;
-        currentMovieData.genres = deepDetails.genres;
-
-        movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
-
-        // === NOVOST PRO IMDB: Sestavení tlačítek ===
-        let dbButtons = '';
-        if (csfdTargetUrl) {
-            dbButtons += `<a href="${csfdTargetUrl}" target="_blank" rel="noopener" class="db-btn-csfd">ČSFD ${deepDetails.rating ? `(${deepDetails.rating}%)` : ''}</a>`;
-        }
-        if (imdbTargetUrl) {
-            dbButtons += `<a href="${imdbTargetUrl}" target="_blank" rel="noopener" class="db-btn-imdb">IMDb</a>`;
-        }
-
-        let streamDropdownHtml = '';
         if (activeStreams.length > 0) {
-            streamDropdownHtml = `
+            streamWrapper.innerHTML = `
                 <div class="context-select-wrapper">
                     <select id="streamSelect" class="context-arrow">
                         ${activeStreams.map((s, idx) => `<option value="${idx}">${s.sizeDisplay}${s.name}</option>`).join('')}
@@ -270,42 +349,28 @@ async function openMovieDetail(movie) {
                 </div>
             `;
         } else {
-            streamDropdownHtml = `<span style="color:var(--text-dim);font-size:14px;">Žádný filmový stream nenalezen</span>`;
+            streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? `S${String(currentSeason).padStart(2,'0')}E${String(currentEpisode).padStart(2,'0')}` : 'film'} nenalezen</span>`;
         }
-
-        const isFav = isMovieInFavorites(movie.title);
-
-        document.getElementById('detailContent').innerHTML = `
-            <h1 class="detail-title">${movie.title}</h1>
-            
-            <div class="action-row">
-                <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
-                ${streamDropdownHtml}
-                ${dbButtons}
-                <button class="btn-download" onclick="startDownloading()">⬇ Stáhnout</button>
-            </div>
-
-            <div class="control-icons">
-                <button id="favBtn" class="icon-circle" onclick="toggleFavoriteCurrent()">${isFav ? '★' : '＋'}</button>
-            </div>
-
-            <div class="meta-layout">
-                <div class="meta-left">
-                    <p style="color:var(--accent); font-weight:bold; font-size:18px; margin-bottom:10px;">${deepDetails.genres}</p>
-                    <p style="margin-bottom:15px;"><strong>Rok:</strong> ${movie.year || 'Neznámý'}</p>
-                    <p style="color:var(--text-dim); line-height:1.6; font-size:15px;">${deepDetails.description}</p>
-                </div>
-                <div class="meta-right">
-                    <p><strong>Hrají / Tvorba:</strong><br><span style="color:var(--text-dim); font-size:14px;">${deepDetails.actors || 'Neznámé.'}</span></p>
-                </div>
-            </div>
-        `;
-
-        addToHistory(currentMovieData);
-
-    } catch (err) {
-        document.getElementById('detailContent').innerHTML = '<div class="error">Chyba při načítání detailu filmu.</div>';
+    } catch (e) {
+        streamWrapper.innerHTML = `<span style="color:var(--accent);font-size:14px;">Chyba načítání streamů</span>`;
     }
+}
+
+// Změna v rozevíracím seznamu Řada / Díl
+function onEpisodeOrSeasonChange() {
+    const sSelect = document.getElementById('seasonSelect');
+    const eSelect = document.getElementById('episodeSelect');
+
+    if (sSelect) currentSeason = parseInt(sSelect.value, 10);
+    if (eSelect) currentEpisode = parseInt(eSelect.value, 10);
+
+    // Zastavíme případně běžící video
+    if (playerContainer.style.display === 'block') {
+        videoPlayer.pause();
+        playerContainer.style.display = 'none';
+    }
+
+    fetchAndRenderStreams();
 }
 
 function startStreaming() {
@@ -324,7 +389,7 @@ function startStreaming() {
                 videoPlayer.src = data.sources[0].file;
                 videoPlayer.load();
                 
-                const savedProgress = getWatchProgress(currentMovieData.title);
+                const savedProgress = getWatchProgress();
                 if (savedProgress && savedProgress.time > 5) {
                     videoPlayer.currentTime = savedProgress.time;
                     showResumeToast();
@@ -347,7 +412,8 @@ function startDownloading() {
             if (data.sources?.[0]?.file) {
                 const a = document.createElement('a');
                 a.href = data.sources[0].file;
-                a.download = `${currentMovieData.title}.mp4`;
+                const fileNameSuffix = currentMovieData.isSeries ? ` S${String(currentSeason).padStart(2,'0')}E${String(currentEpisode).padStart(2,'0')}` : '';
+                a.download = `${currentMovieData.title}${fileNameSuffix}.mp4`;
                 a.click();
             }
         });
@@ -362,12 +428,30 @@ function setupPositionTracker() {
             percent: (videoPlayer.currentTime / videoPlayer.duration) * 100
         };
         
-        localStorage.setItem(`progress_${currentMovieData.title}`, JSON.stringify(progress));
+        const storageKey = getWatchKey();
+        if (storageKey) {
+            localStorage.setItem(storageKey, JSON.stringify(progress));
+        }
     });
 }
 
-function getWatchProgress(title) {
-    const data = localStorage.getItem(`progress_${title}`);
+function getWatchProgress() {
+    const key = getWatchKey();
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : null;
+}
+
+function getWatchProgressForCard(title, isSeries) {
+    let key = `progress_${title}`;
+    if (isSeries) {
+        const lastEp = JSON.parse(localStorage.getItem(`last_ep_${title}`));
+        if (lastEp) {
+            const s = String(lastEp.season).padStart(2, '0');
+            const e = String(lastEp.episode).padStart(2, '0');
+            key = `progress_${title}_S${s}E${e}`;
+        }
+    }
+    const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : null;
 }
 
@@ -383,7 +467,7 @@ function loadLibrary() {
     const favGrid = document.getElementById('favoritesGrid');
     const histGrid = document.getElementById('historyGrid');
 
-    if (favorites.length === 0) favGrid.innerHTML = '<div style="color:var(--text-dim); padding:10px;">Žádné oblíbené filmy.</div>';
+    if (favorites.length === 0) favGrid.innerHTML = '<div style="color:var(--text-dim); padding:10px;">Žádné oblíbené filmy ani seriály.</div>';
     else renderGrid(favorites, favGrid, false);
 
     if (history.length === 0) histGrid.innerHTML = '<div style="color:var(--text-dim); padding:10px;">Žádná historie sledování.</div>';
