@@ -241,6 +241,34 @@
             cursor: pointer;
             font-size: 16px;
         }
+        /* Styly pro seriálový výběr (Řada / Díl) */
+.series-select-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.8);
+    border: 1px solid var(--accent);
+    padding: 6px 14px;
+    border-radius: 6px;
+}
+.series-select-wrapper label {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--text-dim);
+}
+.series-select-wrapper select {
+    background: #181818;
+    color: white;
+    border: 1px solid #444;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 15px;
+    outline: none;
+    cursor: pointer;
+}
+.series-select-wrapper select:focus {
+    border-color: var(--accent);
+}
         
         .control-icons {
             display: flex;
