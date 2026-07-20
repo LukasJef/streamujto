@@ -18,7 +18,7 @@ let searchRequestId = 0;
 
 const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&auto=format&fit=crop';
 
-// --- POMOCNÉ FUNKCE PRO BODOVÁNÍ A STOPÁŽ ---
+// --- POMOCNÉ FUNKCE PRO BODOVÁNÍ A KLÍČE PRO PROGRESS ---
 
 function getWatchKey() {
     if (!currentMovieData) return '';
@@ -54,35 +54,29 @@ function parseSizeToGB(stream) {
     return 0;
 }
 
-// Extrakce minut ze zprávy o stopáži v názvu streamu (např. "(00:58:07)" -> 58)
+// --- NOVÉ: Extrakce délky v minutách z názvu streamu ---
 function parseDurationToMinutes(text) {
-    if (!text) return null;
-    const match = text.match(/\((\d{1,2}):(\d{2}):(\d{2})\)/) || text.match(/\((\d{1,2}):(\d{2})\)/);
-    if (!match) return null;
-
-    if (match.length === 4) {
-        const hours = parseInt(match[1], 10);
-        const minutes = parseInt(match[2], 10);
-        return hours * 60 + minutes;
-    } else if (match.length === 3) {
-        return parseInt(match[1], 10);
+    if (!text) return 0;
+    const str = String(text);
+    // Hledá časové kódy v názvu, např. (01:58:07) nebo (58:30)
+    const timeMatch = str.match(/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/);
+    if (timeMatch) {
+        const hours = timeMatch[1] ? parseInt(timeMatch[1], 10) : 0;
+        const minutes = parseInt(timeMatch[2], 10);
+        return (hours * 60) + minutes;
     }
-    return null;
+    const minMatch = str.match(/(\d+)\s*min/i);
+    if (minMatch) return parseInt(minMatch[1], 10);
+    return 0;
 }
 
-// Výpočet bodového hodnocení podle odchylky v minutách
+// --- NOVÉ: Bodové ohodnocení shody délky ---
 function getDurationScore(streamMinutes, expectedMinutes) {
     if (!streamMinutes || !expectedMinutes) return 0;
-
     const diff = Math.abs(streamMinutes - expectedMinutes);
-
-    if (diff <= 1) {
-        return 50;    // Perfektní shoda (+/- 1 minuta)
-    } else if (diff <= 10) {
-        return -30;   // Mírná odchylka
-    } else {
-        return -150;  // Výrazná odchylka (nad 10 minut -> jiný film / trailer)
-    }
+    if (diff <= 3) return 50;        // Perfektní shoda
+    if (diff <= 10) return -20;      // Drobné odchylky (jiné úvodní/závěrečné znělky)
+    return -150;                     // Velká odchylka (trailer, ukázka, jiný film)
 }
 
 function isWrongSequel(streamName, movieTitle) {
@@ -223,7 +217,7 @@ async function openMovieDetail(movie) {
             genres: 'Film', 
             rating: null,
             isSeries: false,
-            runtime: null
+            runtime: null // NOVÉ: Uložení délky filmu
         };
         
         if (csfdTargetUrl) {
@@ -237,8 +231,8 @@ async function openMovieDetail(movie) {
                     deepDetails.genres = scrapedData.genres || deepDetails.genres;
                     deepDetails.rating = scrapedData.rating || null;
                     deepDetails.isSeries = scrapedData.isSeries || false;
-                    
-                    // Pokusíme se vytáhnout délku (v minutách) ze scraperu
+
+                    // NOVÉ: Extrakce délky z ČSFD dat
                     if (scrapedData.duration || scrapedData.runtime) {
                         const durStr = String(scrapedData.duration || scrapedData.runtime);
                         const numMatch = durStr.match(/\d+/);
@@ -255,8 +249,9 @@ async function openMovieDetail(movie) {
         currentMovieData.description = deepDetails.description;
         currentMovieData.actors = deepDetails.actors;
         currentMovieData.genres = deepDetails.genres;
-        currentMovieData.runtime = deepDetails.runtime;
+        currentMovieData.runtime = deepDetails.runtime; // NOVÉ
 
+        // Pokud jde o seriál, načteme naposledy zvolenou řadu/díl
         if (currentMovieData.isSeries) {
             const lastEp = JSON.parse(localStorage.getItem(`last_ep_${currentMovieData.title}`)) || { season: 1, episode: 1 };
             currentSeason = parseInt(lastEp.season, 10) || 1;
@@ -321,6 +316,7 @@ async function openMovieDetail(movie) {
             </div>
         `;
 
+        // Načteme streamy pro zvolený film nebo konkrétní díl seriálu
         await fetchAndRenderStreams();
         addToHistory(currentMovieData);
 
@@ -334,12 +330,14 @@ async function fetchAndRenderStreams() {
     const streamWrapper = document.getElementById('streamSelectWrapper');
     if (!streamWrapper) return;
 
+    // 1. Zrušíme případný rozehraný dotaz, aby nás starší nevalidní data nepřepsala
     if (currentFetchController) {
         currentFetchController.abort();
     }
     currentFetchController = new AbortController();
     const signal = currentFetchController.signal;
 
+    // Unikátní sekvenční ID pro tento konkrétní požadavek
     const thisRequestId = ++searchRequestId;
 
     streamWrapper.innerHTML = '<span style="color:var(--text-dim);font-size:14px;">Hledám streamy...</span>';
@@ -353,13 +351,16 @@ async function fetchAndRenderStreams() {
         const e = String(currentEpisode).padStart(2, '0');
         searchQuery += ` S${s}E${e}`;
 
+        // Uložíme do paměti naposledy vybranou řadu/díl
         localStorage.setItem(`last_ep_${currentMovieData.title}`, JSON.stringify({ season: currentSeason, episode: currentEpisode }));
     }
 
     try {
+        // Dotaz se zachovanou původní syntaxí URL
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
         const streamData = await streamRes.json();
         
+        // Pokud uživatel mezitím kliknul jinam, tento vypršený výsledek zahodíme
         if (thisRequestId !== searchRequestId) return;
 
         let rawStreams = streamData.streams || [];
@@ -379,6 +380,14 @@ async function fetchAndRenderStreams() {
             const nameLower = stream.name.toLowerCase();
             const sizeInGB = parseSizeToGB(stream);
 
+            // --- NOVÉ: Bodování podle délky (stopáže) ---
+            if (!currentMovieData.isSeries && currentMovieData.runtime) {
+                const streamMinutes = parseDurationToMinutes(stream.name);
+                if (streamMinutes > 0) {
+                    score += getDurationScore(streamMinutes, currentMovieData.runtime);
+                }
+            }
+
             if (isWrongSequel(stream.name, currentMovieData.title)) score -= 80;
 
             if (sizeInGB > 0) {
@@ -392,15 +401,6 @@ async function fetchAndRenderStreams() {
 
             if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab')) score += 15;
             if (nameLower.includes('titulky') || nameLower.includes('cztit')) score += 5;
-
-            // --- BODOVÁNÍ PODLE STOPÁŽE (DÉLKY VIDEA) ---
-            const streamMinutes = parseDurationToMinutes(stream.name);
-            const expectedMinutes = currentMovieData ? currentMovieData.runtime : null;
-
-            if (streamMinutes && expectedMinutes) {
-                const durationScore = getDurationScore(streamMinutes, expectedMinutes);
-                score += durationScore;
-            }
 
             let sizeDisplay = "";
             if (sizeInGB > 0) {
@@ -427,13 +427,14 @@ async function fetchAndRenderStreams() {
             streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? epTag : 'film'} nenalezen</span>`;
         }
     } catch (e) {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') return; // Zrušené požadavky ignorujeme
         if (thisRequestId === searchRequestId) {
             streamWrapper.innerHTML = `<span style="color:var(--accent);font-size:14px;">Chyba načítání streamů</span>`;
         }
     }
 }
 
+// Změna v rozevíracím seznamu Řada / Díl
 function onEpisodeOrSeasonChange() {
     const sSelect = document.getElementById('seasonSelect');
     const eSelect = document.getElementById('episodeSelect');
@@ -441,6 +442,7 @@ function onEpisodeOrSeasonChange() {
     if (sSelect) currentSeason = parseInt(sSelect.value, 10) || 1;
     if (eSelect) currentEpisode = parseInt(eSelect.value, 10) || 1;
 
+    // Zastavíme případně běžící video
     if (playerContainer.style.display === 'block') {
         videoPlayer.pause();
         playerContainer.style.display = 'none';
