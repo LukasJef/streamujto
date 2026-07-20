@@ -12,6 +12,10 @@ let currentMovieData = null;
 let currentSeason = 1;
 let currentEpisode = 1;
 
+// Řízení stornování starých/neplatných požadavků
+let currentFetchController = null;
+let searchRequestId = 0;
+
 const FALLBACK_POSTER = 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&auto=format&fit=crop';
 
 // --- POMOCNÉ FUNKCE PRO BODOVÁNÍ A KLÍČE PRO PROGRESS ---
@@ -216,8 +220,8 @@ async function openMovieDetail(movie) {
         // Pokud jde o seriál, načteme naposledy zvolenou řadu/díl
         if (currentMovieData.isSeries) {
             const lastEp = JSON.parse(localStorage.getItem(`last_ep_${currentMovieData.title}`)) || { season: 1, episode: 1 };
-            currentSeason = lastEp.season;
-            currentEpisode = lastEp.episode;
+            currentSeason = parseInt(lastEp.season, 10) || 1;
+            currentEpisode = parseInt(lastEp.episode, 10) || 1;
         }
 
         movieDetail.style.backgroundImage = `linear-gradient(to top, #0c0c0c 12%, rgba(12,12,12,0.4) 50%, rgba(12,12,12,0.85) 100%), url('${currentMovieData.poster}')`;
@@ -292,7 +296,20 @@ async function fetchAndRenderStreams() {
     const streamWrapper = document.getElementById('streamSelectWrapper');
     if (!streamWrapper) return;
 
+    // 1. Zrušíme případný rozehraný dotaz, aby nás starší nevalidní data nepřepsala
+    if (currentFetchController) {
+        currentFetchController.abort();
+    }
+    currentFetchController = new AbortController();
+    const signal = currentFetchController.signal;
+
+    // Unikátní sekvenční ID pro tento konkrétní požadavek
+    const thisRequestId = ++searchRequestId;
+
     streamWrapper.innerHTML = '<span style="color:var(--text-dim);font-size:14px;">Hledám streamy...</span>';
+
+    currentSeason = parseInt(currentSeason, 10) || 1;
+    currentEpisode = parseInt(currentEpisode, 10) || 1;
 
     let searchQuery = currentMovieData.title;
     if (currentMovieData.isSeries) {
@@ -305,9 +322,24 @@ async function fetchAndRenderStreams() {
     }
 
     try {
-        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}`);
+        // Přidán timestamp `_t` proti nechtěnému kešování chyb
+        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
         const streamData = await streamRes.json();
-        const rawStreams = streamData.streams || [];
+        
+        // Pokud uživatel mezitím kliknul jinam, tento vypršený výsledek zahodíme
+        if (thisRequestId !== searchRequestId) return;
+
+        let rawStreams = streamData.streams || [];
+
+        // FALLBACK: Pokud server nenašel formát "S01E05", zkusí tvar "1x05"
+        if (rawStreams.length === 0 && currentMovieData.isSeries) {
+            const altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
+            const altRes = await fetch(`/get-streams?title=${encodeURIComponent(altQuery)}&_t=${Date.now()}`, { signal });
+            const altData = await altRes.json();
+
+            if (thisRequestId !== searchRequestId) return;
+            rawStreams = altData.streams || [];
+        }
 
         activeStreams = rawStreams.map(stream => {
             let score = 100;
@@ -349,10 +381,14 @@ async function fetchAndRenderStreams() {
                 </div>
             `;
         } else {
-            streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? `S${String(currentSeason).padStart(2,'0')}E${String(currentEpisode).padStart(2,'0')}` : 'film'} nenalezen</span>`;
+            const epTag = `S${String(currentSeason).padStart(2,'0')}E${String(currentEpisode).padStart(2,'0')}`;
+            streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? epTag : 'film'} nenalezen</span>`;
         }
     } catch (e) {
-        streamWrapper.innerHTML = `<span style="color:var(--accent);font-size:14px;">Chyba načítání streamů</span>`;
+        if (e.name === 'AbortError') return; // Zrušené požadavky ignorujeme
+        if (thisRequestId === searchRequestId) {
+            streamWrapper.innerHTML = `<span style="color:var(--accent);font-size:14px;">Chyba načítání streamů</span>`;
+        }
     }
 }
 
@@ -361,8 +397,8 @@ function onEpisodeOrSeasonChange() {
     const sSelect = document.getElementById('seasonSelect');
     const eSelect = document.getElementById('episodeSelect');
 
-    if (sSelect) currentSeason = parseInt(sSelect.value, 10);
-    if (eSelect) currentEpisode = parseInt(eSelect.value, 10);
+    if (sSelect) currentSeason = parseInt(sSelect.value, 10) || 1;
+    if (eSelect) currentEpisode = parseInt(eSelect.value, 10) || 1;
 
     // Zastavíme případně běžící video
     if (playerContainer.style.display === 'block') {
