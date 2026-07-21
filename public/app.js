@@ -11,9 +11,8 @@ let activeStreams = [];
 let currentMovieData = null;
 let currentSeason = 1;
 let currentEpisode = 1;
-let selectedLanguage = 'cz'; // Výchozí volba jazyka: 'cz' nebo 'en'
+let selectedLanguage = 'cz'; // 'cz' nebo 'en'
 
-// Řízení stornování starých/neplatných požadavků
 let currentFetchController = null;
 let searchRequestId = 0;
 
@@ -36,16 +35,14 @@ function parseSizeToGB(stream) {
         return stream.size / (1024 * 1024 * 1024);
     }
     
-    if (stream.size && typeof stream.size === 'string') {
-        const sizeText = stream.size.toLowerCase();
-        const gbMatch = sizeText.match(/(\d+(?:[.,]\d+)?)\s*gb/);
-        if (gbMatch) return parseFloat(gbMatch[1].replace(',', '.'));
-        
-        const mbMatch = sizeText.match(/(\d+(?:[.,]\d+)?)\s*mb/);
-        if (mbMatch) return parseFloat(mbMatch[1].replace(',', '.')) / 1024;
-    }
+    const sizeStr = String(stream.size || '').toLowerCase();
+    const gbMatch = sizeStr.match(/(\d+(?:[.,]\d+)?)\s*gb/);
+    if (gbMatch) return parseFloat(gbMatch[1].replace(',', '.'));
     
-    const nameLower = String(stream.name || '').toLowerCase();
+    const mbMatch = sizeStr.match(/(\d+(?:[.,]\d+)?)\s*mb/);
+    if (mbMatch) return parseFloat(mbMatch[1].replace(',', '.')) / 1024;
+
+    const nameLower = String(stream.name || stream.title || '').toLowerCase();
     const gbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*gb/);
     if (gbMatchName) return parseFloat(gbMatchName[1].replace(',', '.'));
     
@@ -55,59 +52,93 @@ function parseSizeToGB(stream) {
     return 0;
 }
 
-// Extrakce minut ze zprávy o stopáži v názvu streamu (např. "(00:58:07)" -> 58)
+// Extrakce minut z textu (např. "(02:43:27)" nebo "164 min")
 function parseDurationToMinutes(text) {
     if (!text) return null;
     const match = text.match(/\((\d{1,2}):(\d{2}):(\d{2})\)/) || text.match(/\((\d{1,2}):(\d{2})\)/);
-    if (!match) return null;
-
-    if (match.length === 4) {
-        const hours = parseInt(match[1], 10);
-        const minutes = parseInt(match[2], 10);
-        return hours * 60 + minutes;
-    } else if (match.length === 3) {
-        return parseInt(match[1], 10);
+    if (match) {
+        if (match.length === 4) {
+            return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+        } else if (match.length === 3) {
+            return parseInt(match[1], 10);
+        }
     }
+    const minMatch = String(text).match(/(\d+)\s*min/i);
+    if (minMatch) return parseInt(minMatch[1], 10);
+
     return null;
 }
 
 // Výpočet bodového hodnocení podle odchylky v minutách
 function getDurationScore(streamMinutes, expectedMinutes) {
     if (!streamMinutes || !expectedMinutes) return 0;
-
     const diff = Math.abs(streamMinutes - expectedMinutes);
 
-    if (diff <= 1) {
-        return 50;    // Perfektní shoda (+/- 1 minuta)
-    } else if (diff <= 10) {
-        return -30;   // Mírná odchylka
-    } else {
-        return -150;  // Výrazná odchylka (nad 10 minut -> jiný film / trailer)
-    }
+    if (diff <= 3) return 100;    // Perfektní shoda (+/- 3 min)
+    if (diff <= 8) return 10;     // Mírná odchylka (verze s titulkem/střihem)
+    return -500;                  // Drastický odklon -> jiný film / díl / trailer
 }
 
-function isWrongSequel(streamName, movieTitle) {
-    if (currentMovieData && currentMovieData.isSeries) return false;
+// Pokročilé výpočetní centrum skóre streamu
+function calculateStreamScore(stream, movieData, lang) {
+    let score = 100;
 
-    let cleanTitle = String(movieTitle || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
-    let cleanStream = String(streamName || '').toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ');
+    const rawTitle = stream.title || stream.filename || stream.originalName || '';
+    const rawName = stream.name || '';
+    const fullText = `${rawTitle} ${rawName}`.toLowerCase();
 
-    cleanStream = cleanStream.replace(/\b(2\.0|5\.1|7\.1)\b/g, ' ');
-    cleanStream = cleanStream.replace(/\b(480|576|720|1080|2160)p?\b/g, ' ');
+    // 1. KONTROLA SPECIFICKÝCH ČÍSEL V NÁZVU (např. 2049, 2012, 2, 3)
+    const targetTitle = (movieData.title || '').toLowerCase();
+    const targetYear = String(movieData.year || '');
 
-    let moviePart = 1;
-    const moviePartMatch = cleanTitle.match(/\b([1-9]|10)\b/);
-    if (moviePartMatch) {
-        moviePart = parseInt(moviePartMatch[1], 10);
+    // Pokud vyhledávaný film obsahuje specifické 4-místné číslo (např. 2049)
+    const titleNumbers = targetTitle.match(/\b(19\d{2}|20\d{2}|\d{1,2})\b/g) || [];
+    titleNumbers.forEach(num => {
+        if (num.length === 4 && !fullText.includes(num)) {
+            score -= 500; // Chybí např. "2049" v názvu souboru!
+        }
+    });
+
+    // Pokud má film definovaný rok (např. 2017) a stream explicitně obsahuje jiný rok (např. 1982)
+    if (targetYear && targetYear.length === 4) {
+        const streamYears = fullText.match(/\b(19\d{2}|20\d{2})\b/g) || [];
+        streamYears.forEach(y => {
+            if (y !== targetYear && !targetTitle.includes(y)) {
+                score -= 400; // Jiný rok vydání
+            }
+        });
     }
 
-    let streamPart = 1;
-    const streamPartMatch = cleanStream.match(/\b([1-9]|10)\b/);
-    if (streamPartMatch) {
-        streamPart = parseInt(streamPartMatch[1], 10);
+    // 2. STOPÁŽ (DÉLKA FILMŮ)
+    const streamMin = parseDurationToMinutes(rawTitle) || parseDurationToMinutes(rawName);
+    const expectedMin = movieData ? (typeof movieData.runtime === 'number' ? movieData.runtime : parseDurationToMinutes(String(movieData.runtime))) : null;
+
+    if (streamMin && expectedMin) {
+        score += getDurationScore(streamMin, expectedMin);
     }
 
-    return moviePart !== streamPart;
+    // 3. VELIKOST
+    const sizeInGB = parseSizeToGB(stream);
+    if (sizeInGB > 0) {
+        if (sizeInGB >= 1.3) score += 30;
+        if (sizeInGB < 0.4) score -= 80;
+    }
+
+    // 4. JAZYKOVÉ PREFERENCE
+    if (lang === 'cz') {
+        if (fullText.includes('cz') || fullText.includes('dabing') || fullText.includes('czdab') || fullText.includes('cz-dab')) score += 50;
+        if (fullText.includes('eng') || fullText.includes('english')) score -= 20;
+    } else if (lang === 'en') {
+        if (fullText.includes('eng') || fullText.includes('english') || fullText.includes('en')) score += 60;
+        if (fullText.includes('czdab') || fullText.includes('cz dabing') || fullText.includes('cz-dab') || fullText.includes('cz dab')) score -= 150;
+    }
+
+    // Penalizace pro ukázky a soundtracky
+    if (fullText.includes('soundtrack') || fullText.includes('trailer') || fullText.includes('ukázka') || fullText.includes('ost')) {
+        score -= 400;
+    }
+
+    return score;
 }
 
 // Spuštění po načtení stránky
@@ -290,7 +321,6 @@ async function openMovieDetail(movie) {
             `;
         }
 
-        // Výběr jazyka CZ / EN
         const langSelectHtml = `
             <div class="context-select-wrapper">
                 <select id="langSelect" class="context-arrow" onchange="onLanguageChange(this.value)">
@@ -340,7 +370,6 @@ async function openMovieDetail(movie) {
     }
 }
 
-// Změna jazyka přes selektor
 function onLanguageChange(newLang) {
     selectedLanguage = newLang;
     if (playerContainer.style.display === 'block') {
@@ -350,7 +379,6 @@ function onLanguageChange(newLang) {
     fetchAndRenderStreams();
 }
 
-// Vyhledání a obnova dropdownu se streamy
 async function fetchAndRenderStreams() {
     const streamWrapper = document.getElementById('streamSelectWrapper');
     if (!streamWrapper) return;
@@ -377,7 +405,6 @@ async function fetchAndRenderStreams() {
         localStorage.setItem(`last_ep_${currentMovieData.title}`, JSON.stringify({ season: currentSeason, episode: currentEpisode }));
     }
 
-    // Pokud je vybrána EN, přidáme k dotazu požadavek na ENG
     if (selectedLanguage === 'en') {
         searchQuery += ' ENG';
     }
@@ -390,7 +417,6 @@ async function fetchAndRenderStreams() {
 
         let rawStreams = streamData.streams || [];
 
-        // FALLBACK: Pokud server nenašel formát "S01E05", zkusí tvar "1x05"
         if (rawStreams.length === 0 && currentMovieData.isSeries) {
             let altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
             if (selectedLanguage === 'en') altQuery += ' ENG';
@@ -403,56 +429,34 @@ async function fetchAndRenderStreams() {
         }
 
         activeStreams = rawStreams.map(stream => {
-            let score = 100;
-            const nameLower = stream.name.toLowerCase();
+            const score = calculateStreamScore(stream, currentMovieData, selectedLanguage);
             const sizeInGB = parseSizeToGB(stream);
 
-            if (isWrongSequel(stream.name, currentMovieData.title)) score -= 80;
-
+            // Zobrazení originálního názvu souboru/streamu
+            let rawTitle = stream.title || stream.filename || stream.originalName || stream.name || '';
+            
+            let sizePrefix = "";
             if (sizeInGB > 0) {
-                if (sizeInGB >= 1.3) score += 30;
-                if (sizeInGB < 0.4) score -= 60;
+                sizePrefix = sizeInGB >= 1.0 ? `[${sizeInGB.toFixed(1)} GB] ` : `[${(sizeInGB * 1024).toFixed(0)} MB] `;
             }
 
-            if (nameLower.includes('soundtrack') || nameLower.includes('trailer') || nameLower.includes('ukázka') || nameLower.includes('ost')) {
-                score -= 60;
+            // Pokud štítek již obsahuje velikost v závorce na začátku, nepřidáváme duplicitně
+            let displayTitle = rawTitle;
+            if (!displayTitle.startsWith('[')) {
+                displayTitle = `${sizePrefix}${displayTitle}`;
             }
 
-            // --- JAZYKOVÉ BODOVÁNÍ PODLE VOLBY UŽIVATELE ---
-            if (selectedLanguage === 'cz') {
-                if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab') || nameLower.includes('cz-dab')) score += 40;
-                if (nameLower.includes('en') || nameLower.includes('eng') || nameLower.includes('english')) score -= 20;
-            } else if (selectedLanguage === 'en') {
-                if (nameLower.includes('en') || nameLower.includes('eng') || nameLower.includes('english')) score += 40;
-                if (nameLower.includes('czdab') || nameLower.includes('cz dabing') || nameLower.includes('cz-dab')) score -= 30;
-            }
-
-            // --- BODOVÁNÍ PODLE STOPÁŽE (DÉLKY VIDEA) ---
-            const streamMinutes = parseDurationToMinutes(stream.name);
-            const expectedMinutes = currentMovieData ? currentMovieData.runtime : null;
-
-            if (streamMinutes && expectedMinutes) {
-                const durationScore = getDurationScore(streamMinutes, expectedMinutes);
-                score += durationScore;
-            }
-
-            let sizeDisplay = "";
-            if (sizeInGB > 0) {
-                sizeDisplay = sizeInGB >= 1.0 ? `[${sizeInGB.toFixed(1)} GB] ` : `[${(sizeInGB * 1024).toFixed(0)} MB] `;
-            } else if (stream.size && typeof stream.size === 'string') {
-                sizeDisplay = `[${stream.size}] `;
-            }
-
-            return { ...stream, score: score, sizeDisplay: sizeDisplay };
+            return { ...stream, score: score, displayTitle: displayTitle };
         });
 
+        // Sestupné řazení podle skóre
         activeStreams.sort((a, b) => b.score - a.score);
 
         if (activeStreams.length > 0) {
             streamWrapper.innerHTML = `
                 <div class="context-select-wrapper">
                     <select id="streamSelect" class="context-arrow">
-                        ${activeStreams.map((s, idx) => `<option value="${idx}">${s.sizeDisplay}${s.name}</option>`).join('')}
+                        ${activeStreams.map((s, idx) => `<option value="${idx}">${s.displayTitle}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -496,13 +500,9 @@ function startStreaming() {
         .then(res => res.json())
         .then(data => {
             if (data.sources && data.sources.length > 0) {
-                // Vyčistíme staré stopy/titulky v přehrávači
                 videoPlayer.innerHTML = '';
-
-                // 1. Nastavíme výchozí video stream
                 videoPlayer.src = data.sources[0].file;
 
-                // 2. Vložení titulků, pokud je backend vráti
                 if (data.tracks && data.tracks.length > 0) {
                     data.tracks.forEach(track => {
                         const trackEl = document.createElement('track');
@@ -515,9 +515,7 @@ function startStreaming() {
                     });
                 }
 
-                // 3. Vykreslení přepínače kvalit (720p, 1080p, atd.)
                 renderQualitySelector(data.sources);
-
                 videoPlayer.load();
 
                 const savedProgress = getWatchProgress();
