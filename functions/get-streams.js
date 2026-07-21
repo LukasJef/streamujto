@@ -47,22 +47,39 @@ export async function onRequest(context) {
         seenLinks.add(link);
 
         const rawTitle = titleMatch[1].replace(/<[^>]*>/g, '').trim();
-
         const size = sizeMatch ? sizeMatch[1].replace(/<[^>]*>/g, '').trim() : 'Neznámá velikost';
         const duration = durationMatch ? durationMatch[1].replace(/<[^>]*>/g, '').trim() : '';
 
+        // Detekce rozlišení
         let label = "Standardní kvalita";
         if (/1080p/i.test(rawTitle)) label = "HD rozlišení (1080p)";
         else if (/720p/i.test(rawTitle)) label = "SD rozlišení (720p)";
         else if (/2160p|4k/i.test(rawTitle)) label = "UltraHD rozlišení (4K)";
 
-        if (/cz|dabing|titulky/i.test(rawTitle)) {
-          label += ` [${/dabing/i.test(rawTitle) || /cz/i.test(rawTitle) ? 'CZ Dabing' : 'Titulky'}]`;
+        // Přesná detekce jazyka pomocí slovních hranic (\b)
+        const isCz = /\b(cz|czdab|czdabing|dabing|cesky|česky)\b/i.test(rawTitle);
+        const isEn = /\b(en|eng|english)\b/i.test(rawTitle);
+        const isSub = /\b(tit|titulky|sub|subs)\b/i.test(rawTitle);
+
+        let langTag = "";
+        if (isCz) {
+          langTag = "[CZ Dabing]";
+        } else if (isEn) {
+          langTag = "[EN Znění]";
+        } else if (isSub) {
+          langTag = "[Titulky]";
+        }
+
+        if (langTag) {
+          label += ` ${langTag}`;
         }
 
         streams.push({
           link: link,
-          name: `${label} — ${size} (${duration})`
+          title: rawTitle, // DŮLEŽITÉ: Posíláme originální název souboru z Přehraj.to do frontendu!
+          name: `${label} — ${size} (${duration})`,
+          size: size,
+          duration: duration
         });
       }
     }
