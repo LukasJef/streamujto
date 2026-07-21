@@ -42,7 +42,7 @@ function parseSizeToGB(stream) {
     const mbMatch = sizeStr.match(/(\d+(?:[.,]\d+)?)\s*mb/);
     if (mbMatch) return parseFloat(mbMatch[1].replace(',', '.')) / 1024;
 
-    const nameLower = String(stream.name || stream.title || '').toLowerCase();
+    const nameLower = String(stream.title || stream.name || '').toLowerCase();
     const gbMatchName = nameLower.match(/(\d+(?:[.,]\d+)?)\s*gb/);
     if (gbMatchName) return parseFloat(gbMatchName[1].replace(',', '.'));
     
@@ -52,7 +52,7 @@ function parseSizeToGB(stream) {
     return 0;
 }
 
-// Extrakce minut z textu (např. "(02:43:27)" nebo "164 min")
+// Extrakce minut z textu
 function parseDurationToMinutes(text) {
     if (!text) return null;
     const match = text.match(/\((\d{1,2}):(\d{2}):(\d{2})\)/) || text.match(/\((\d{1,2}):(\d{2})\)/);
@@ -74,34 +74,33 @@ function getDurationScore(streamMinutes, expectedMinutes) {
     if (!streamMinutes || !expectedMinutes) return 0;
     const diff = Math.abs(streamMinutes - expectedMinutes);
 
-    if (diff <= 3) return 100;    // Perfektní shoda (+/- 3 min)
-    if (diff <= 8) return 10;     // Mírná odchylka (verze s titulkem/střihem)
-    return -500;                  // Drastický odklon -> jiný film / díl / trailer
+    if (diff <= 3) return 100;    // Perfektní shoda
+    if (diff <= 8) return 10;     // Mírná odchylka
+    return -500;                  // Drastický odklon -> penalizace
 }
 
-// Pokročilé výpočetní centrum skóre streamu
+// Výpočet skóre pro řazení streamů
 function calculateStreamScore(stream, movieData, lang) {
     let score = 100;
 
-    const rawTitle = stream.title || stream.filename || stream.originalName || '';
-    const rawName = stream.name || '';
-    const fullText = `${rawTitle} ${rawName}`.toLowerCase();
+    // Pracujeme primárně s reálným názvem souboru (stream.title)
+    const rawTitle = (stream.title || '').toLowerCase();
+    const rawName = (stream.name || '').toLowerCase();
+    const fullText = `${rawTitle} ${rawName}`;
 
-    // 1. KONTROLA SPECIFICKÝCH ČÍSEL V NÁZVU (např. 2049, 2012, 2, 3)
+    // 1. KONTROLA KLÍČOVÝCH ČÍSEL V NÁZVU (např. 2049)
     const targetTitle = (movieData.title || '').toLowerCase();
     const targetYear = String(movieData.year || '');
 
-    // Pokud vyhledávaný film obsahuje specifické 4-místné číslo (např. 2049)
     const titleNumbers = targetTitle.match(/\b(19\d{2}|20\d{2}|\d{1,2})\b/g) || [];
     titleNumbers.forEach(num => {
-        if (num.length === 4 && !fullText.includes(num)) {
-            score -= 500; // Chybí např. "2049" v názvu souboru!
+        if (num.length === 4 && !rawTitle.includes(num)) {
+            score -= 500; // V reálném názvu souboru chybí např. "2049"
         }
     });
 
-    // Pokud má film definovaný rok (např. 2017) a stream explicitně obsahuje jiný rok (např. 1982)
     if (targetYear && targetYear.length === 4) {
-        const streamYears = fullText.match(/\b(19\d{2}|20\d{2})\b/g) || [];
+        const streamYears = rawTitle.match(/\b(19\d{2}|20\d{2})\b/g) || [];
         streamYears.forEach(y => {
             if (y !== targetYear && !targetTitle.includes(y)) {
                 score -= 400; // Jiný rok vydání
@@ -124,16 +123,19 @@ function calculateStreamScore(stream, movieData, lang) {
         if (sizeInGB < 0.4) score -= 80;
     }
 
-    // 4. JAZYKOVÉ PREFERENCE
+    // 4. JAZYKOVÉ PREFERENCE DLE ORIGINÁLNÍHO NÁZVU
+    const hasCzKeywords = /\b(cz|czdab|czdabing|dabing|cesky|česky)\b/i.test(rawTitle);
+    const hasEnKeywords = /\b(en|eng|english)\b/i.test(rawTitle);
+
     if (lang === 'cz') {
-        if (fullText.includes('cz') || fullText.includes('dabing') || fullText.includes('czdab') || fullText.includes('cz-dab')) score += 50;
-        if (fullText.includes('eng') || fullText.includes('english')) score -= 20;
+        if (hasCzKeywords) score += 150;
+        if (hasEnKeywords && !hasCzKeywords) score -= 250; // Silná penalizace pro EN znění při volbě CZ
     } else if (lang === 'en') {
-        if (fullText.includes('eng') || fullText.includes('english') || fullText.includes('en')) score += 60;
-        if (fullText.includes('czdab') || fullText.includes('cz dabing') || fullText.includes('cz-dab') || fullText.includes('cz dab')) score -= 150;
+        if (hasEnKeywords) score += 150;
+        if (hasCzKeywords && !hasEnKeywords) score -= 250; // Silná penalizace pro CZ dabing při volbě EN
     }
 
-    // Penalizace pro ukázky a soundtracky
+    // Ukázky a soundtracky
     if (fullText.includes('soundtrack') || fullText.includes('trailer') || fullText.includes('ukázka') || fullText.includes('ost')) {
         score -= 400;
     }
@@ -432,24 +434,23 @@ async function fetchAndRenderStreams() {
             const score = calculateStreamScore(stream, currentMovieData, selectedLanguage);
             const sizeInGB = parseSizeToGB(stream);
 
-            // Zobrazení originálního názvu souboru/streamu
-            let rawTitle = stream.title || stream.filename || stream.originalName || stream.name || '';
+            // Zobrazíme originální název z Přehraj.to + velikost a čas
+            let rawTitle = stream.title || stream.name || 'Neznámý soubor';
             
             let sizePrefix = "";
             if (sizeInGB > 0) {
                 sizePrefix = sizeInGB >= 1.0 ? `[${sizeInGB.toFixed(1)} GB] ` : `[${(sizeInGB * 1024).toFixed(0)} MB] `;
             }
 
-            // Pokud štítek již obsahuje velikost v závorce na začátku, nepřidáváme duplicitně
-            let displayTitle = rawTitle;
-            if (!displayTitle.startsWith('[')) {
-                displayTitle = `${sizePrefix}${displayTitle}`;
+            let displayTitle = `${sizePrefix}${rawTitle}`;
+            if (stream.duration) {
+                displayTitle += ` (${stream.duration})`;
             }
 
             return { ...stream, score: score, displayTitle: displayTitle };
         });
 
-        // Sestupné řazení podle skóre
+        // Řazení podle skóre
         activeStreams.sort((a, b) => b.score - a.score);
 
         if (activeStreams.length > 0) {
