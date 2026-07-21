@@ -11,6 +11,7 @@ let activeStreams = [];
 let currentMovieData = null;
 let currentSeason = 1;
 let currentEpisode = 1;
+let selectedLanguage = 'cz'; // Výchozí volba jazyka: 'cz' nebo 'en'
 
 // Řízení stornování starých/neplatných požadavků
 let currentFetchController = null;
@@ -238,7 +239,6 @@ async function openMovieDetail(movie) {
                     deepDetails.rating = scrapedData.rating || null;
                     deepDetails.isSeries = scrapedData.isSeries || false;
                     
-                    // Pokusíme se vytáhnout délku (v minutách) ze scraperu
                     if (scrapedData.duration || scrapedData.runtime) {
                         const durStr = String(scrapedData.duration || scrapedData.runtime);
                         const numMatch = durStr.match(/\d+/);
@@ -290,6 +290,16 @@ async function openMovieDetail(movie) {
             `;
         }
 
+        // Výběr jazyka CZ / EN
+        const langSelectHtml = `
+            <div class="context-select-wrapper">
+                <select id="langSelect" class="context-arrow" onchange="onLanguageChange(this.value)">
+                    <option value="cz" ${selectedLanguage === 'cz' ? 'selected' : ''}>🇨🇿 CZ Dabing</option>
+                    <option value="en" ${selectedLanguage === 'en' ? 'selected' : ''}>🇬🇧 EN Původní</option>
+                </select>
+            </div>
+        `;
+
         const isFav = isMovieInFavorites(movie.title);
 
         document.getElementById('detailContent').innerHTML = `
@@ -297,6 +307,7 @@ async function openMovieDetail(movie) {
             
             <div class="action-row">
                 <button class="btn-play" onclick="startStreaming()">▶ Přehrát</button>
+                ${langSelectHtml}
                 ${seriesControlsHtml}
                 <div id="streamSelectWrapper">
                     <span style="color:var(--text-dim);font-size:14px;">Načítám streamy...</span>
@@ -329,6 +340,16 @@ async function openMovieDetail(movie) {
     }
 }
 
+// Změna jazyka přes selektor
+function onLanguageChange(newLang) {
+    selectedLanguage = newLang;
+    if (playerContainer.style.display === 'block') {
+        videoPlayer.pause();
+        playerContainer.style.display = 'none';
+    }
+    fetchAndRenderStreams();
+}
+
 // Vyhledání a obnova dropdownu se streamy
 async function fetchAndRenderStreams() {
     const streamWrapper = document.getElementById('streamSelectWrapper');
@@ -356,6 +377,11 @@ async function fetchAndRenderStreams() {
         localStorage.setItem(`last_ep_${currentMovieData.title}`, JSON.stringify({ season: currentSeason, episode: currentEpisode }));
     }
 
+    // Pokud je vybrána EN, přidáme k dotazu požadavek na ENG
+    if (selectedLanguage === 'en') {
+        searchQuery += ' ENG';
+    }
+
     try {
         const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
         const streamData = await streamRes.json();
@@ -366,7 +392,9 @@ async function fetchAndRenderStreams() {
 
         // FALLBACK: Pokud server nenašel formát "S01E05", zkusí tvar "1x05"
         if (rawStreams.length === 0 && currentMovieData.isSeries) {
-            const altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
+            let altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
+            if (selectedLanguage === 'en') altQuery += ' ENG';
+
             const altRes = await fetch(`/get-streams?title=${encodeURIComponent(altQuery)}&_t=${Date.now()}`, { signal });
             const altData = await altRes.json();
 
@@ -390,8 +418,14 @@ async function fetchAndRenderStreams() {
                 score -= 60;
             }
 
-            if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab')) score += 15;
-            if (nameLower.includes('titulky') || nameLower.includes('cztit')) score += 5;
+            // --- JAZYKOVÉ BODOVÁNÍ PODLE VOLBY UŽIVATELE ---
+            if (selectedLanguage === 'cz') {
+                if (nameLower.includes('cz') || nameLower.includes('dabing') || nameLower.includes('czdab') || nameLower.includes('cz-dab')) score += 40;
+                if (nameLower.includes('en') || nameLower.includes('eng') || nameLower.includes('english')) score -= 20;
+            } else if (selectedLanguage === 'en') {
+                if (nameLower.includes('en') || nameLower.includes('eng') || nameLower.includes('english')) score += 40;
+                if (nameLower.includes('czdab') || nameLower.includes('cz dabing') || nameLower.includes('cz-dab')) score -= 30;
+            }
 
             // --- BODOVÁNÍ PODLE STOPÁŽE (DÉLKY VIDEA) ---
             const streamMinutes = parseDurationToMinutes(stream.name);
@@ -424,7 +458,7 @@ async function fetchAndRenderStreams() {
             `;
         } else {
             const epTag = `S${String(currentSeason).padStart(2,'0')}E${String(currentEpisode).padStart(2,'0')}`;
-            streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? epTag : 'film'} nenalezen</span>`;
+            streamWrapper.innerHTML = `<span style="color:var(--text-dim);font-size:14px;">Žádný stream pro ${currentMovieData.isSeries ? epTag : 'film'} (${selectedLanguage.toUpperCase()}) nenalezen</span>`;
         }
     } catch (e) {
         if (e.name === 'AbortError') return;
@@ -461,19 +495,75 @@ function startStreaming() {
     fetch(`/get-video?url=${encodeURIComponent(targetLink)}`)
         .then(res => res.json())
         .then(data => {
-            if (data.sources?.[0]?.file) {
+            if (data.sources && data.sources.length > 0) {
+                // Vyčistíme staré stopy/titulky v přehrávači
+                videoPlayer.innerHTML = '';
+
+                // 1. Nastavíme výchozí video stream
                 videoPlayer.src = data.sources[0].file;
+
+                // 2. Vložení titulků, pokud je backend vráti
+                if (data.tracks && data.tracks.length > 0) {
+                    data.tracks.forEach(track => {
+                        const trackEl = document.createElement('track');
+                        trackEl.kind = track.kind || 'captions';
+                        trackEl.label = track.label || 'Titulky';
+                        trackEl.srclang = track.srclang || 'cs';
+                        trackEl.src = track.file;
+                        if (track.default) trackEl.default = true;
+                        videoPlayer.appendChild(trackEl);
+                    });
+                }
+
+                // 3. Vykreslení přepínače kvalit (720p, 1080p, atd.)
+                renderQualitySelector(data.sources);
+
                 videoPlayer.load();
-                
+
                 const savedProgress = getWatchProgress();
                 if (savedProgress && savedProgress.time > 5) {
                     videoPlayer.currentTime = savedProgress.time;
                     showResumeToast();
                 }
-                
+
                 videoPlayer.play();
             }
+        })
+        .catch(err => {
+            console.error("Chyba při načítání videa:", err);
         });
+}
+
+function renderQualitySelector(sources) {
+    let qualityWrapper = document.getElementById('qualityWrapper');
+    if (!qualityWrapper) {
+        qualityWrapper = document.createElement('div');
+        qualityWrapper.id = 'qualityWrapper';
+        qualityWrapper.className = 'quality-select-wrapper';
+        qualityWrapper.style.margin = '10px 0';
+        playerContainer.insertBefore(qualityWrapper, videoPlayer);
+    }
+
+    if (sources.length <= 1) {
+        qualityWrapper.innerHTML = '';
+        return;
+    }
+
+    qualityWrapper.innerHTML = `
+        <label style="color:var(--text-dim); font-size:14px; margin-right:8px;">Kvalita:</label>
+        <select onchange="changeVideoQuality(this.value)" class="context-arrow">
+            ${sources.map(src => `<option value="${src.file}">${src.label || 'SD'}</option>`).join('')}
+        </select>
+    `;
+}
+
+function changeVideoQuality(newSrc) {
+    const currentTime = videoPlayer.currentTime;
+    const isPaused = videoPlayer.paused;
+
+    videoPlayer.src = newSrc;
+    videoPlayer.currentTime = currentTime;
+    if (!isPaused) videoPlayer.play();
 }
 
 function startDownloading() {
