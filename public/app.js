@@ -398,13 +398,17 @@ async function fetchAndRenderStreams() {
     currentSeason = parseInt(currentSeason, 10) || 1;
     currentEpisode = parseInt(currentEpisode, 10) || 1;
 
+    // --- ÚPRAVA: Přidání roku k náznámým/krátkým názvům filmů ---
     let searchQuery = currentMovieData.title;
+    
     if (currentMovieData.isSeries) {
         const s = String(currentSeason).padStart(2, '0');
         const e = String(currentEpisode).padStart(2, '0');
         searchQuery += ` S${s}E${e}`;
-
         localStorage.setItem(`last_ep_${currentMovieData.title}`, JSON.stringify({ season: currentSeason, episode: currentEpisode }));
+    } else if (currentMovieData.year) {
+        // U filmů přihodíme rok, aby vyhledávač Přehraj.to nebyl zaplaven balastem
+        searchQuery += ` ${currentMovieData.year}`;
     }
 
     if (selectedLanguage === 'en') {
@@ -412,13 +416,26 @@ async function fetchAndRenderStreams() {
     }
 
     try {
-        const streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
-        const streamData = await streamRes.json();
+        let streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
+        let streamData = await streamRes.json();
         
         if (thisRequestId !== searchRequestId) return;
 
         let rawStreams = streamData.streams || [];
 
+        // Pobočný pokus: Pokud hledání s rokem nic nenajde, zkusíme to záložně bez roku
+        if (rawStreams.length === 0 && !currentMovieData.isSeries && currentMovieData.year) {
+            let fallbackQuery = currentMovieData.title;
+            if (selectedLanguage === 'en') fallbackQuery += ' ENG';
+            
+            const fallbackRes = await fetch(`/get-streams?title=${encodeURIComponent(fallbackQuery)}&_t=${Date.now()}`, { signal });
+            const fallbackData = await fallbackRes.json();
+            if (thisRequestId === searchRequestId) {
+                rawStreams = fallbackData.streams || [];
+            }
+        }
+
+        // Pobočný pokus pro seriály (S01E01 -> 1x01)
         if (rawStreams.length === 0 && currentMovieData.isSeries) {
             let altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
             if (selectedLanguage === 'en') altQuery += ' ENG';
@@ -434,7 +451,6 @@ async function fetchAndRenderStreams() {
             const score = calculateStreamScore(stream, currentMovieData, selectedLanguage);
             const sizeInGB = parseSizeToGB(stream);
 
-            // Zobrazíme originální název z Přehraj.to + velikost a čas
             let rawTitle = stream.title || stream.name || 'Neznámý soubor';
             
             let sizePrefix = "";
@@ -450,7 +466,6 @@ async function fetchAndRenderStreams() {
             return { ...stream, score: score, displayTitle: displayTitle };
         });
 
-        // Řazení podle skóre
         activeStreams.sort((a, b) => b.score - a.score);
 
         if (activeStreams.length > 0) {
