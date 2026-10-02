@@ -1,3 +1,6 @@
+// --- KONFIGURACE BACKEND API ---
+const API_URL = 'http://185.203.119.250:3000'; // Uprav port, pokud na VPS běží na jiném než 3000
+
 const searchInput = document.getElementById('searchQuery');
 const resultsContainer = document.getElementById('resultsContainer');
 const resultsDiv = document.getElementById('results');
@@ -175,7 +178,7 @@ async function search() {
     resultsDiv.innerHTML = '<div class="loader">Prohledávám filmové databáze...</div>';
 
     try {
-        const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_URL}/search?q=${encodeURIComponent(query)}`);
         const data = await response.json();
 
         if (data.error || !data.results || data.results.length === 0) {
@@ -224,7 +227,7 @@ function renderGrid(movies, targetElement, lazyLoadPosters = false) {
         targetElement.appendChild(card);
 
         if (lazyLoadPosters && csfdUrl) {
-            fetch(`/csfd-scrape?url=${encodeURIComponent(csfdUrl)}`)
+            fetch(`${API_URL}/csfd-scrape?url=${encodeURIComponent(csfdUrl)}`)
                 .then(res => res.json())
                 .then(details => {
                     if (details.poster && details.poster.trim() !== "") {
@@ -262,7 +265,7 @@ async function openMovieDetail(movie) {
         
         if (csfdTargetUrl) {
             try {
-                const detailRes = await fetch(`/csfd-scrape?url=${encodeURIComponent(csfdTargetUrl)}`);
+                const detailRes = await fetch(`${API_URL}/csfd-scrape?url=${encodeURIComponent(csfdTargetUrl)}`);
                 if (detailRes.ok) {
                     const scrapedData = await detailRes.json();
                     deepDetails.poster = (scrapedData.poster && scrapedData.poster.trim() !== "") ? scrapedData.poster : deepDetails.poster;
@@ -416,7 +419,7 @@ async function fetchAndRenderStreams() {
     }
 
     try {
-        let streamRes = await fetch(`/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
+        let streamRes = await fetch(`${API_URL}/get-streams?title=${encodeURIComponent(searchQuery)}&_t=${Date.now()}`, { signal });
         let streamData = await streamRes.json();
         
         if (thisRequestId !== searchRequestId) return;
@@ -428,7 +431,7 @@ async function fetchAndRenderStreams() {
             let fallbackQuery = currentMovieData.title;
             if (selectedLanguage === 'en') fallbackQuery += ' ENG';
             
-            const fallbackRes = await fetch(`/get-streams?title=${encodeURIComponent(fallbackQuery)}&_t=${Date.now()}`, { signal });
+            const fallbackRes = await fetch(`${API_URL}/get-streams?title=${encodeURIComponent(fallbackQuery)}&_t=${Date.now()}`, { signal });
             const fallbackData = await fallbackRes.json();
             if (thisRequestId === searchRequestId) {
                 rawStreams = fallbackData.streams || [];
@@ -440,7 +443,7 @@ async function fetchAndRenderStreams() {
             let altQuery = `${currentMovieData.title} ${currentSeason}x${String(currentEpisode).padStart(2, '0')}`;
             if (selectedLanguage === 'en') altQuery += ' ENG';
 
-            const altRes = await fetch(`/get-streams?title=${encodeURIComponent(altQuery)}&_t=${Date.now()}`, { signal });
+            const altRes = await fetch(`${API_URL}/get-streams?title=${encodeURIComponent(altQuery)}&_t=${Date.now()}`, { signal });
             const altData = await altRes.json();
 
             if (thisRequestId !== searchRequestId) return;
@@ -512,7 +515,7 @@ function startStreaming() {
     playerContainer.style.display = 'block';
     window.scrollTo({ top: playerContainer.offsetTop - 20, behavior: 'smooth' });
 
-    fetch(`/get-video?url=${encodeURIComponent(targetLink)}`)
+    fetch(`${API_URL}/get-video?url=${encodeURIComponent(targetLink)}`)
         .then(res => res.json())
         .then(data => {
             if (data.sources && data.sources.length > 0) {
@@ -586,7 +589,7 @@ function startDownloading() {
     const idx = selectEl ? selectEl.value : 0;
     const targetLink = activeStreams[idx].link;
 
-    fetch(`/get-video?url=${encodeURIComponent(targetLink)}`)
+    fetch(`${API_URL}/get-video?url=${encodeURIComponent(targetLink)}`)
         .then(res => res.json())
         .then(data => {
             if (data.sources?.[0]?.file) {
