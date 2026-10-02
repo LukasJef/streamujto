@@ -1,5 +1,5 @@
 // --- KONFIGURACE BACKEND API ---
-const API_URL = 'http://185.203.119.250:3000'; // Uprav port, pokud na VPS běží na jiném než 3000
+const API_URL = 'https://api.moviora.win'; // Uprav port, pokud na VPS běží na jiném než 3000
 
 const searchInput = document.getElementById('searchQuery');
 const resultsContainer = document.getElementById('resultsContainer');
