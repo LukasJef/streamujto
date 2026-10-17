@@ -2,383 +2,560 @@
 <html lang="cs">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#170b0c">
     <title>Moviora</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0c0c0c;
-            --card-bg: #181818;
-            --accent: #e50914; 
-            --text: #ffffff;
-            --text-dim: #bbbbbb;
+            /* Kinosál: samet, světlo plátna a červená z loga */
+            --bg: #170b0c;
+            --surface: #231214;
+            --surface-2: #2e181b;
+            --line: #3d2326;
+            --text: #f4ece6;
+            --muted: #b9a49e;
+            --red: #e50914;
+            --red-press: #b8070f;
+            --radius-s: 4px;
+            --radius-m: 8px;
+            --gutter: clamp(16px, 4vw, 48px);
+            --font: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
         }
+
+        *, *::before, *::after { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+
+        html { scrollbar-color: var(--line) var(--bg); }
         body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background-color: var(--bg-color);
+            margin: 0;
+            background: var(--bg);
             color: var(--text);
-            margin: 0;
-            padding: 20px;
-            padding-bottom: 80px;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        h1.logo {
-            text-align: center;
-            color: var(--accent);
-            font-size: 2.5rem;
-            letter-spacing: 4px;
-            margin-bottom: 30px;
-            font-weight: 900;
-            cursor: pointer;
-        }
-        .search-box {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 40px;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        input {
-            flex-grow: 1;
-            padding: 15px 20px;
-            border: none;
-            border-radius: 6px;
-            background-color: var(--card-bg);
-            color: white;
+            font-family: var(--font);
             font-size: 16px;
-            outline: none;
-            border: 1px solid #252525;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
         }
-        input:focus { border-color: var(--accent); }
-        button.btn-search {
-            padding: 15px 35px;
-            background-color: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: background 0.2s;
-        }
-        button.btn-search:hover { background-color: #b80710; }
-        
-        /* Sekce knihovny na hlavní stránce */
-        .library-section {
-            margin-bottom: 40px;
-        }
-        .section-title {
-            font-size: 1.5rem;
-            margin-bottom: 20px;
-            border-left: 4px solid var(--accent);
-            padding-left: 10px;
-            letter-spacing: 1px;
+        img { display: block; max-width: 100%; }
+        button, input, select { font: inherit; color: inherit; }
+        button { cursor: pointer; }
+        a { color: inherit; }
+
+        :focus-visible {
+            outline: 2px solid var(--text);
+            outline-offset: 2px;
         }
 
-        /* Filmová mřížka */
-        .movie-grid {
+        .visually-hidden {
+            position: absolute; width: 1px; height: 1px; overflow: hidden;
+            clip: rect(0 0 0 0); white-space: nowrap;
+        }
+
+        /* ---------- Horní lišta ---------- */
+        .topbar {
+            position: sticky; top: 0; z-index: 20;
+            display: flex; align-items: center; gap: clamp(16px, 4vw, 40px);
+            padding: 14px var(--gutter);
+            background: rgba(23, 11, 12, 0.92);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--line);
+        }
+        .brand {
+            flex: none; display: block; border-radius: var(--radius-s);
+            background: none; border: 0; padding: 0;
+        }
+        .brand img { height: 44px; width: auto; }
+
+        .search {
+            flex: 1; min-width: 0; max-width: 560px;
+            display: flex; align-items: center; gap: 10px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-m);
+            padding: 0 6px 0 14px;
+            transition: border-color .15s;
+        }
+        .search:focus-within { border-color: var(--muted); }
+        .search svg { flex: none; width: 18px; height: 18px; color: var(--muted); }
+        .search input {
+            flex: 1; min-width: 0;
+            background: none; border: 0; outline: none;
+            padding: 11px 0; font-size: 16px;
+        }
+        .search input::placeholder { color: var(--muted); }
+        .search input::-webkit-search-cancel-button { display: none; }
+        .search kbd {
+            flex: none; font: 600 12px var(--font);
+            color: var(--muted); border: 1px solid var(--line);
+            border-radius: 4px; padding: 1px 7px;
+        }
+        @media (hover: none), (max-width: 760px) { .search kbd { display: none; } }
+
+        main { padding: 32px var(--gutter) 96px; max-width: 1600px; margin: 0 auto; }
+
+        /* ---------- Nadpisy sekcí ---------- */
+        .shelf { margin-bottom: 48px; }
+        .shelf-title {
+            font-size: 1.375rem; font-weight: 800; font-stretch: 85%;
+            letter-spacing: -0.01em; margin: 0 0 16px;
+        }
+        .shelf-note { color: var(--muted); margin: -10px 0 16px; }
+
+        /* ---------- Prázdná knihovna ---------- */
+        .intro { padding: clamp(32px, 10vh, 120px) 0 48px; max-width: 46ch; }
+        .intro h1 {
+            font-size: clamp(2.5rem, 7vw, 5rem); line-height: .95;
+            font-weight: 900; font-stretch: 70%; letter-spacing: -0.02em;
+            margin: 0 0 20px; text-transform: uppercase;
+        }
+        .intro p { color: var(--muted); font-size: 1.125rem; margin: 0; }
+
+        /* ---------- Plakáty ---------- */
+        .poster-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+            gap: 28px 20px;
         }
-        .movie-card {
-            background: var(--card-bg);
-            border-radius: 8px;
-            overflow: hidden;
-            cursor: pointer;
-            transition: transform 0.3s, box-shadow 0.3s;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            position: relative;
+        .poster-row {
+            display: grid; grid-auto-flow: column;
+            grid-auto-columns: minmax(156px, 180px);
+            gap: 20px; overflow-x: auto;
+            padding-bottom: 12px; scroll-snap-type: x proximity;
+            scrollbar-width: thin;
         }
-        .movie-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 24px rgba(229, 9, 20, 0.2);
+        .poster-row .poster { scroll-snap-align: start; }
+
+        .poster {
+            display: flex; flex-direction: column; gap: 4px;
+            text-align: left; background: none; border: 0; padding: 0;
+            border-radius: var(--radius-s);
         }
-        .movie-card img {
-            width: 100%;
-            height: 270px;
-            object-fit: cover;
-            background: #222;
+        .poster-frame {
+            position: relative; aspect-ratio: 2 / 3;
+            background: var(--surface); border-radius: var(--radius-s);
+            overflow: hidden; margin-bottom: 8px;
         }
-        .movie-card .card-info {
-            padding: 12px;
+        .poster-frame img {
+            width: 100%; height: 100%; object-fit: cover;
+            transition: transform .3s ease, filter .3s ease;
         }
-        .movie-card h3 {
-            font-size: 14px;
-            margin: 0 0 6px 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        .poster:hover .poster-frame img,
+        .poster:focus-visible .poster-frame img { transform: scale(1.04); filter: brightness(1.08); }
+        .poster-title {
+            font-weight: 700; font-size: 15px; line-height: 1.25;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
-        .movie-card p {
-            font-size: 12px;
-            color: var(--text-dim);
-            margin: 0;
+        .poster-year { color: var(--muted); font-size: 14px; }
+
+        /* Ukazatel rozkoukanosti = playhead z loga */
+        .playhead {
+            position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+            background: rgba(0, 0, 0, .55);
         }
-        .progress-bar-container {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 4px;
-            background: rgba(255,255,255,0.2);
+        .playhead span {
+            position: absolute; left: 0; top: 0; bottom: 0; background: var(--red);
         }
-        .progress-bar-fill {
-            height: 100%;
-            background: var(--accent);
-            width: 0%;
+        .playhead span::after {
+            content: ''; position: absolute; right: -2px; bottom: 0;
+            width: 4px; height: 14px; background: var(--red);
         }
 
-        /* Filmová karta přesně podle A24 / Netflix předlohy */
-        .movie-detail-view {
-            display: none;
-            width: 100%;
-            min-height: 550px;
-            position: relative;
-            background-size: cover;
-            background-position: center 20%;
-            border-radius: 12px;
-            margin-bottom: 40px;
-            overflow: hidden;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        .status { color: var(--muted); padding: 24px 0; }
+        .status.error { color: var(--text); }
+        .status.error::before {
+            content: ''; display: inline-block; width: 4px; height: 1em;
+            background: var(--red); margin-right: 10px; vertical-align: -2px;
         }
-        .detail-overlay {
-            padding: 50px;
-            background: linear-gradient(to top, #0c0c0c 15%, rgba(12,12,12,0.6) 55%, rgba(12,12,12,0.85) 100%);
-            min-height: 550px;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
+
+        /* ---------- Detail filmu ---------- */
+        .detail { position: relative; isolation: isolate; }
+        .detail-backdrop {
+            position: fixed; inset: 0; z-index: -1;
+            background-size: cover; background-position: center 25%;
+            filter: blur(48px) saturate(1.2);
+            opacity: .35; transform: scale(1.15);
+            pointer-events: none;
         }
+        .detail-backdrop::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(to bottom, rgba(23,11,12,.3), var(--bg) 70%);
+        }
+
+        .detail-hero {
+            display: grid; grid-template-columns: minmax(180px, 300px) 1fr;
+            gap: clamp(24px, 4vw, 56px); align-items: start;
+            margin-bottom: 48px;
+        }
+        .detail-poster {
+            width: 100%; aspect-ratio: 2 / 3; object-fit: cover;
+            border-radius: var(--radius-m); background: var(--surface);
+            box-shadow: 0 30px 60px -20px rgba(0,0,0,.8);
+        }
+
+        .detail-main { position: relative; padding-left: 28px; min-width: 0; }
+        /* Svislá čára z písmene I v logu */
+        .detail-main::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+            width: 6px; background: var(--red);
+            transform-origin: top; animation: draw-line .6s cubic-bezier(.2,.7,.2,1) both;
+        }
+        @keyframes draw-line { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
         .detail-title {
-            font-size: 4rem;
-            margin: 0 0 25px 0;
-            font-weight: 900;
-            text-shadow: 3px 3px 15px rgba(0,0,0,0.9);
-            letter-spacing: -1px;
+            font-size: clamp(2.6rem, 6.5vw, 5.5rem);
+            line-height: .92; font-weight: 900; font-stretch: 65%;
+            letter-spacing: -0.015em; text-transform: uppercase;
+            margin: 0 0 10px; overflow-wrap: anywhere;
         }
-        
-        .action-row {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        .btn-play {
-            background-color: var(--accent);
-            color: white;
-            padding: 14px 45px;
-            font-weight: bold;
-            font-size: 18px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .btn-play:hover { transform: scale(1.03); }
-        
-        .context-select-wrapper {
-            display: inline-flex;
-            align-items: center;
-            background: rgba(0,0,0,0.75);
-            border: 1px solid #444;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        .context-arrow {
-            background: transparent;
-            color: white;
-            border: none;
-            padding: 14px 20px;
-            font-size: 16px;
-            cursor: pointer;
-            outline: none;
-        }
-        
-        .db-btn-csfd {
-            background: #b80710;
-            color: white;
-            padding: 12px 22px;
-            font-weight: bold;
-            border-radius: 6px;
-            text-decoration: none;
-            font-size: 16px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .db-btn-imdb {
-    background: #f5c518;
-    color: black;
-    padding: 12px 22px;
-    font-weight: bold;
-    border-radius: 6px;
-    text-decoration: none;
-    font-size: 16px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    transition: transform 0.2s, background-color 0.2s;
-}
+        .detail-original { color: var(--muted); font-size: 1.125rem; margin: 0 0 18px; }
 
-.db-btn-imdb:hover {
-    background-color: #e2b616;
-    transform: scale(1.03);
-}
-        .btn-download {
-            background: #ffffff;
-            color: #000000;
-            padding: 14px 25px;
-            border: none;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 16px;
+        .facts {
+            display: flex; flex-wrap: wrap; gap: 8px; list-style: none;
+            padding: 0; margin: 0 0 28px;
         }
-        /* Styly pro seriálový výběr (Řada / Díl) */
-.series-select-wrapper {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(0,0,0,0.8);
-    border: 1px solid var(--accent);
-    padding: 6px 14px;
-    border-radius: 6px;
-}
-.series-select-wrapper label {
-    font-size: 14px;
-    font-weight: bold;
-    color: var(--text-dim);
-}
-.series-select-wrapper select {
-    background: #181818;
-    color: white;
-    border: 1px solid #444;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 15px;
-    outline: none;
-    cursor: pointer;
-}
-.series-select-wrapper select:focus {
-    border-color: var(--accent);
-}
-        
-        .control-icons {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 35px;
+        .facts li {
+            border: 1px solid var(--line); border-radius: 999px;
+            padding: 3px 12px; font-size: 14px; color: var(--muted);
+            background: rgba(23,11,12,.5);
         }
-        .icon-circle {
-            background: rgba(0,0,0,0.5);
-            border: 2px solid rgba(255,255,255,0.7);
-            color: white;
-            width: 46px;
-            height: 46px;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
+        .facts .rating { color: var(--text); border-color: var(--red); font-weight: 700; }
+
+        .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 24px; }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+            min-height: 48px; padding: 0 22px;
+            border-radius: var(--radius-m); border: 1px solid var(--line);
+            background: var(--surface); font-weight: 700; font-size: 16px;
+            text-decoration: none; white-space: nowrap;
+            transition: background-color .15s, border-color .15s, transform .1s;
         }
-        .icon-circle:hover {
-            background: white;
-            color: black;
-            border-color: white;
+        .btn:hover { background: var(--surface-2); border-color: var(--muted); }
+        .btn:active { transform: translateY(1px); }
+        .btn svg { width: 20px; height: 20px; flex: none; }
+        .btn-primary {
+            background: var(--red); border-color: var(--red); color: #fff;
+            padding: 0 30px; font-size: 18px;
+        }
+        .btn-primary:hover { background: var(--red-press); border-color: var(--red-press); }
+        .btn-primary:disabled { opacity: .5; cursor: progress; }
+        .btn-quiet { background: transparent; }
+        .btn[aria-pressed="true"] { border-color: var(--red); }
+        .btn[aria-pressed="true"] svg { color: var(--red); fill: var(--red); }
+
+        .segmented {
+            display: inline-flex; padding: 3px; gap: 3px;
+            border: 1px solid var(--line); border-radius: var(--radius-m);
+            background: var(--surface);
+        }
+        .segmented button {
+            min-height: 40px; padding: 0 14px; border: 0; border-radius: 5px;
+            background: none; font-weight: 700; color: var(--muted);
+        }
+        .segmented button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+
+        .episode-picker {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+            margin-bottom: 24px;
+        }
+        .episode-picker label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+        .episode-picker select {
+            min-height: 44px; padding: 0 12px; border-radius: var(--radius-m);
+            background: var(--surface); border: 1px solid var(--line); font-weight: 700;
+        }
+        .icon-btn {
+            width: 44px; height: 44px; display: inline-grid; place-items: center;
+            border-radius: var(--radius-m); border: 1px solid var(--line);
+            background: var(--surface);
+        }
+        .icon-btn:hover { border-color: var(--muted); }
+        .icon-btn:disabled { opacity: .4; cursor: default; }
+        .icon-btn svg { width: 20px; height: 20px; }
+
+        .plot { max-width: 68ch; font-size: 1.0625rem; line-height: 1.65; margin: 0 0 20px; }
+        .cast { max-width: 68ch; color: var(--muted); margin: 0 0 24px; }
+        .cast strong { color: var(--text); font-weight: 700; }
+        .ext-links { display: flex; gap: 10px; flex-wrap: wrap; }
+        .ext-links a {
+            color: var(--muted); text-decoration: none; font-weight: 600;
+            border-bottom: 1px solid var(--line); padding-bottom: 2px;
+        }
+        .ext-links a:hover { color: var(--text); border-color: var(--text); }
+
+        /* ---------- Seznam zdrojů ---------- */
+        .sources-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+        .sources-head .shelf-title { margin: 0; }
+        .sources-head .count { color: var(--muted); }
+        .source-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+        .source-list li { border-bottom: 1px solid var(--line); }
+        .source {
+            position: relative; width: 100%;
+            display: grid; grid-template-columns: 70px 52px 1fr auto auto;
+            align-items: center; gap: 16px;
+            padding: 14px 16px 14px 22px;
+            background: none; border: 0; text-align: left;
+            transition: background-color .12s;
+        }
+        .source:hover { background: rgba(255,255,255,.035); }
+        .source::before {
+            content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+            width: 4px; background: var(--red); transform: scaleY(0);
+            transition: transform .15s;
+        }
+        .source[aria-pressed="true"] { background: rgba(229, 9, 20, .08); }
+        .source[aria-pressed="true"]::before { transform: scaleY(1); }
+
+        .tag-q { font-weight: 800; font-stretch: 80%; font-size: 15px; }
+        .tag-q.uhd { color: var(--text); }
+        .tag-lang {
+            font-size: 12px; font-weight: 700; text-align: center;
+            border: 1px solid var(--line); border-radius: 4px; padding: 1px 0;
+            color: var(--muted);
+        }
+        .tag-lang.match { color: var(--text); border-color: var(--muted); }
+        .source-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .source-size, .source-dur { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
+        .source-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+        /* ---------- Přehrávač ---------- */
+        .player {
+            position: fixed; inset: 0; z-index: 100;
+            background: #000; color: #fff;
+            display: grid; grid-template-rows: 1fr;
+        }
+        .player video {
+            width: 100%; height: 100%; object-fit: contain; background: #000;
+            grid-area: 1 / 1; position: relative; z-index: 0;
+        }
+        .player-chrome {
+            grid-area: 1 / 1; display: flex; flex-direction: column; justify-content: space-between;
+            position: relative; z-index: 2;
+            pointer-events: none; transition: opacity .25s;
+        }
+        .player.idle .player-chrome { opacity: 0; }
+        .player.idle { cursor: none; }
+        .player-top, .player-bottom { pointer-events: auto; padding: 16px max(20px, env(safe-area-inset-left)); }
+        .player-top {
+            display: flex; align-items: center; gap: 16px;
+            background: linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+            padding-bottom: 48px;
+        }
+        .player-heading { min-width: 0; }
+        .player-heading strong {
+            display: block; font-weight: 900; font-stretch: 70%; font-size: 1.5rem;
+            text-transform: uppercase; line-height: 1.05;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .player-heading span { color: rgba(255,255,255,.7); font-size: 14px; }
+
+        .player-bottom {
+            background: linear-gradient(to top, rgba(0,0,0,.85), transparent);
+            padding-top: 56px; padding-bottom: max(16px, env(safe-area-inset-bottom));
+        }
+        .p-btn {
+            width: 44px; height: 44px; display: inline-grid; place-items: center;
+            border: 0; border-radius: 50%; background: none; color: #fff;
+        }
+        .p-btn:hover { background: rgba(255,255,255,.12); }
+        .p-btn svg { width: 24px; height: 24px; }
+        .p-btn.text { width: auto; padding: 0 14px; border-radius: 22px; font-weight: 700; gap: 8px; display: inline-flex; align-items: center; }
+        .p-btn[aria-pressed="true"] { color: var(--red); }
+
+        .seek {
+            position: relative; height: 28px; cursor: pointer; touch-action: none;
+            display: flex; align-items: center; margin-bottom: 6px;
+        }
+        .seek-track { position: absolute; left: 0; right: 0; height: 4px; background: rgba(255,255,255,.25); transition: height .1s; }
+        .seek:hover .seek-track { height: 6px; }
+        .seek-buffer { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.35); }
+        .seek-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--red); }
+        .seek-head {
+            position: absolute; top: 50%; width: 5px; height: 22px; margin-left: -2px;
+            background: var(--red); transform: translateY(-50%);
+        }
+        .seek-tip {
+            position: absolute; bottom: 30px; transform: translateX(-50%);
+            background: rgba(0,0,0,.85); padding: 2px 8px; border-radius: 4px;
+            font-size: 13px; font-variant-numeric: tabular-nums; pointer-events: none;
         }
 
-        .meta-layout {
-            display: grid;
-            grid-template-columns: 1.1fr 0.9fr;
-            gap: 60px;
-            text-shadow: 1px 1px 5px rgba(0,0,0,0.8);
+        .controls-row { display: flex; align-items: center; gap: 4px; }
+        .controls-row .spacer { flex: 1; }
+        .time { font-variant-numeric: tabular-nums; font-size: 14px; color: rgba(255,255,255,.85); margin-left: 8px; white-space: nowrap; }
+        .volume { display: inline-flex; align-items: center; }
+        .volume input { width: 90px; accent-color: var(--red); }
+        @media (max-width: 640px) { .volume input, .hide-narrow { display: none; } }
+
+        .p-menu { position: relative; }
+        .p-menu-list {
+            position: absolute; right: 0; bottom: 52px; min-width: 160px;
+            background: rgba(20,10,11,.96); border: 1px solid rgba(255,255,255,.12);
+            border-radius: var(--radius-m); padding: 6px; list-style: none; margin: 0;
         }
-        .meta-left p {
-            margin: 6px 0;
+        .p-menu-list button {
+            width: 100%; text-align: left; padding: 9px 12px; border: 0; background: none;
+            border-radius: 5px; color: #fff; font-weight: 600;
         }
-        .meta-right {
-            font-size: 15px;
-            color: #e0e0e0;
-            line-height: 1.6;
+        .p-menu-list button:hover { background: rgba(255,255,255,.1); }
+        .p-menu-list button[aria-checked="true"] { color: var(--red); }
+
+        .player-center {
+            grid-area: 1 / 1; place-self: center; text-align: center;
+            position: relative; z-index: 1;
+            pointer-events: none; padding: 24px; max-width: 520px;
         }
-        
-        /* Přehrávač */
-        #playerContainer {
-            display: none;
-            margin-bottom: 40px;
-            background: #000;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.8);
+        .player-center.interactive { pointer-events: auto; }
+        .spinner {
+            width: 6px; height: 56px; background: var(--red); margin: 0 auto;
+            animation: pulse 1s ease-in-out infinite;
         }
-        video#videoPlayer {
-            width: 100%;
-            display: block;
+        @keyframes pulse { 0%, 100% { transform: scaleY(.3); opacity: .5; } 50% { transform: scaleY(1); opacity: 1; } }
+        .player-msg { margin: 16px 0 0; font-size: 1.0625rem; }
+        .player-msg + .btn { margin-top: 16px; }
+
+        /* ---------- Toast ---------- */
+        .toast {
+            position: fixed; left: 50%; bottom: 32px; z-index: 200;
+            transform: translate(-50%, 20px); opacity: 0;
+            background: var(--text); color: var(--bg); font-weight: 600;
+            padding: 12px 20px; border-radius: var(--radius-m);
+            box-shadow: 0 12px 30px rgba(0,0,0,.5);
+            transition: opacity .2s, transform .2s; pointer-events: none;
+            max-width: calc(100vw - 32px);
         }
-        .loader { text-align: center; padding: 60px; color: var(--text-dim); font-size: 18px; }
-        .resume-toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #222;
-            border-left: 5px solid var(--accent);
-            padding: 15px 25px;
-            border-radius: 4px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            z-index: 9999;
-            font-size: 14px;
-            display: none;
+        .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+        /* ---------- Responzivita ---------- */
+        @media (max-width: 760px) {
+            .brand img { height: 34px; }
+            .topbar { gap: 14px; }
+            .detail-hero { grid-template-columns: 1fr; }
+            .detail-poster { width: 140px; }
+            .detail-main { padding-left: 18px; }
+            .detail-main::before { width: 4px; }
+            .source { grid-template-columns: 60px 44px 1fr; row-gap: 2px; padding-left: 18px; }
+            .source-size, .source-dur { grid-column: 3; }
+            .source-dur { display: none; }
+            .poster-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 22px 14px; }
+            .poster-row { grid-auto-columns: 128px; gap: 14px; }
+            .btn-primary { flex: 1 1 100%; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; }
         }
     </style>
 </head>
 <body>
+    <header class="topbar">
+        <a class="brand" href="#" id="brandLink" aria-label="Moviora – domů">
+            <img src="moviora_logo.png" alt="Moviora" width="123" height="44">
+        </a>
+        <form class="search" role="search" id="searchForm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <label for="searchQuery" class="visually-hidden">Hledat film nebo seriál</label>
+            <input type="search" id="searchQuery" placeholder="Hledat film nebo seriál" autocomplete="off" enterkeyhint="search">
+            <kbd aria-hidden="true">/</kbd>
+        </form>
+    </header>
 
-    <div class="container">
-        <h1 class="logo" onclick="showMainPage()">MOVIORA</h1>
-
-        <div class="search-box">
-            <input type="text" id="searchQuery" placeholder="Zadejte název filmu...">
-            <button class="btn-search" onclick="search()">Hledat</button>
-        </div>
-
-        <!-- Video přehrávač -->
-        <div id="playerContainer">
-            <video id="videoPlayer" controls crossorigin="anonymous"></video>
-        </div>
-
-        <!-- Detail panel filmu -->
-        <div id="movieDetail" class="movie-detail-view">
-            <div id="detailContent" class="detail-overlay"></div>
-        </div>
-
-        <!-- Sekce Moje Knihovna (Historie & Oblíbené) -->
-        <div id="libraryContainer">
-            <div class="library-section">
-                <div class="section-title">Nedávno sledované (Historie)</div>
-                <div id="historyGrid" class="movie-grid"></div>
+    <main id="main">
+        <!-- Domů: rozkoukané a oblíbené -->
+        <section id="libraryContainer">
+            <div id="homeIntro" class="intro" hidden>
+                <h1>Co si dnes pustíš?</h1>
+                <p>Napiš název filmu nebo seriálu do vyhledávání nahoře. Co začneš sledovat, najdeš pak tady i s místem, kde jsi skončil.</p>
             </div>
-            <div class="library-section">
-                <div class="section-title">Moje oblíbené</div>
-                <div id="favoritesGrid" class="movie-grid"></div>
-            </div>
-        </div>
+            <section class="shelf" id="historySection" hidden>
+                <h2 class="shelf-title">Pokračovat ve sledování</h2>
+                <div id="historyGrid" class="poster-row"></div>
+            </section>
+            <section class="shelf" id="favoritesSection" hidden>
+                <h2 class="shelf-title">Oblíbené</h2>
+                <div id="favoritesGrid" class="poster-grid"></div>
+            </section>
+        </section>
 
         <!-- Výsledky vyhledávání -->
-        <div id="resultsContainer" style="display: none;">
-            <div class="section-title">Výsledky vyhledávání</div>
-            <div id="results" class="movie-grid"></div>
+        <section id="resultsContainer" class="shelf" hidden>
+            <h2 class="shelf-title" id="resultsTitle">Výsledky</h2>
+            <div id="results" class="poster-grid"></div>
+        </section>
+
+        <!-- Detail filmu -->
+        <section id="movieDetail" class="detail" hidden>
+            <div class="detail-backdrop" id="detailBackdrop"></div>
+            <div id="detailContent"></div>
+        </section>
+    </main>
+
+    <!-- Přehrávač přes celou obrazovku -->
+    <div id="player" class="player" hidden role="dialog" aria-modal="true" aria-label="Přehrávač">
+        <video id="videoPlayer" playsinline crossorigin="anonymous" preload="metadata"></video>
+
+        <div class="player-center" id="playerCenter" aria-live="polite"></div>
+
+        <div class="player-chrome" id="playerChrome">
+            <div class="player-top">
+                <button class="p-btn" id="pClose" aria-label="Zavřít přehrávač">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <div class="player-heading">
+                    <strong id="pTitle"></strong>
+                    <span id="pSubtitle"></span>
+                </div>
+            </div>
+
+            <div class="player-bottom">
+                <div class="seek" id="pSeek" role="slider" tabindex="0" aria-label="Pozice ve videu" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="seek-track">
+                        <div class="seek-buffer" id="pBuffer"></div>
+                        <div class="seek-fill" id="pFill"></div>
+                    </div>
+                    <div class="seek-head" id="pHead"></div>
+                    <div class="seek-tip" id="pTip" hidden></div>
+                </div>
+                <div class="controls-row">
+                    <button class="p-btn" id="pPlay" aria-label="Přehrát"></button>
+                    <button class="p-btn hide-narrow" id="pBack" aria-label="Zpět o 10 sekund">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><text x="12" y="15.5" font-size="7" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
+                    </button>
+                    <button class="p-btn hide-narrow" id="pFwd" aria-label="Vpřed o 10 sekund">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/><text x="12" y="15.5" font-size="7" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
+                    </button>
+                    <div class="volume">
+                        <button class="p-btn" id="pMute" aria-label="Ztlumit"></button>
+                        <input type="range" id="pVolume" min="0" max="1" step="0.05" value="1" aria-label="Hlasitost">
+                    </div>
+                    <span class="time" id="pTime">0:00 / 0:00</span>
+                    <span class="spacer"></span>
+                    <button class="p-btn text" id="pNext" hidden>Další díl
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5v14l9-7zM16 5h2.5v14H16z"/></svg>
+                    </button>
+                    <button class="p-btn" id="pSubs" aria-label="Titulky" aria-pressed="false" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg>
+                    </button>
+                    <div class="p-menu">
+                        <button class="p-btn" id="pQuality" aria-label="Kvalita" aria-haspopup="true" aria-expanded="false" hidden>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+                        </button>
+                        <ul class="p-menu-list" id="pQualityMenu" role="menu" hidden></ul>
+                    </div>
+                    <button class="p-btn" id="pFull" aria-label="Celá obrazovka">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div id="resumeToast" class="resume-toast">Spouštím film od pozice, kde jste naposledy skončili...</div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <script src="app.js"></script>
 </body>
