@@ -97,6 +97,38 @@
         }
         @media (hover: none), (max-width: 760px) { .search kbd { display: none; } }
 
+        /* Přepínač jazyka stránky */
+        .lang-switch {
+            flex: none; margin-left: auto; display: inline-flex; gap: 2px; padding: 3px;
+            border: 1px solid var(--line); border-radius: var(--radius-m);
+        }
+        .lang-switch button {
+            min-width: 38px; min-height: 34px; border: 0; border-radius: 5px;
+            background: none; color: var(--muted); font-weight: 700; font-size: 13px; letter-spacing: .02em;
+        }
+        .lang-switch button:hover { color: var(--text); }
+        .lang-switch button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+
+        /* Upozornění pro zahraniční návštěvníky */
+        .notice {
+            width: min(520px, calc(100vw - 32px)); padding: 32px 32px 28px 40px;
+            background: var(--surface); color: var(--text);
+            border: 1px solid var(--line); border-radius: var(--radius-m);
+            box-shadow: 0 30px 80px rgba(0,0,0,.6);
+        }
+        .notice::before {
+            content: ''; position: absolute; left: 0; top: 24px; bottom: 24px; width: 6px; background: var(--red);
+        }
+        .notice::backdrop { background: rgba(10, 4, 5, .75); backdrop-filter: blur(4px); }
+        .notice h2 {
+            margin: 0 0 14px; font-size: 1.75rem; line-height: 1.05;
+            font-weight: 900; font-stretch: 70%; text-transform: uppercase;
+        }
+        .notice p { margin: 0 0 12px; line-height: 1.55; }
+        .notice .notice-small { color: var(--muted); font-size: 15px; }
+        .notice-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+        .notice-actions .btn-primary { font-size: 16px; padding: 0 22px; flex: none; }
+
         main { padding: 32px var(--gutter) 96px; max-width: 1600px; margin: 0 auto; }
 
         /* ---------- Nadpisy sekcí ---------- */
@@ -434,7 +466,8 @@
         /* ---------- Responzivita ---------- */
         @media (max-width: 760px) {
             .brand img { height: 34px; }
-            .topbar { gap: 14px; }
+            .topbar { gap: 10px; }
+            .lang-switch button { min-width: 32px; }
             .detail-hero { grid-template-columns: 1fr; }
             .detail-poster { width: 140px; }
             .detail-main { padding-left: 18px; }
@@ -454,30 +487,34 @@
 </head>
 <body>
     <header class="topbar">
-        <a class="brand" href="#" id="brandLink" aria-label="Moviora – domů">
+        <a class="brand" href="#" id="brandLink" aria-label="Moviora – domů" data-i18n-aria="homeLink">
             <img src="moviora_logo.png" alt="Moviora" width="123" height="44">
         </a>
         <form class="search" role="search" id="searchForm">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            <label for="searchQuery" class="visually-hidden">Hledat film nebo seriál</label>
-            <input type="search" id="searchQuery" placeholder="Hledat film nebo seriál" autocomplete="off" enterkeyhint="search">
+            <label for="searchQuery" class="visually-hidden" data-i18n="searchPlaceholder">Hledat film nebo seriál</label>
+            <input type="search" id="searchQuery" placeholder="Hledat film nebo seriál" data-i18n-placeholder="searchPlaceholder" autocomplete="off" enterkeyhint="search">
             <kbd aria-hidden="true">/</kbd>
         </form>
+        <div class="lang-switch" role="group" aria-label="Jazyk stránky" data-i18n-aria="uiLangGroup">
+            <button type="button" data-ui-lang="cs" aria-pressed="true" lang="cs" title="Čeština">CS</button>
+            <button type="button" data-ui-lang="en" aria-pressed="false" lang="en" title="English">EN</button>
+        </div>
     </header>
 
     <main id="main">
         <!-- Domů: rozkoukané a oblíbené -->
         <section id="libraryContainer">
             <div id="homeIntro" class="intro" hidden>
-                <h1>Co si dnes pustíš?</h1>
-                <p>Napiš název filmu nebo seriálu do vyhledávání nahoře. Co začneš sledovat, najdeš pak tady i s místem, kde jsi skončil.</p>
+                <h1 data-i18n="introTitle">Co si dnes pustíš?</h1>
+                <p data-i18n="introText">Napiš název filmu nebo seriálu do vyhledávání nahoře. Co začneš sledovat, najdeš pak tady i s místem, kde jsi skončil.</p>
             </div>
             <section class="shelf" id="historySection" hidden>
-                <h2 class="shelf-title">Pokračovat ve sledování</h2>
+                <h2 class="shelf-title" data-i18n="continueWatching">Pokračovat ve sledování</h2>
                 <div id="historyGrid" class="poster-row"></div>
             </section>
             <section class="shelf" id="favoritesSection" hidden>
-                <h2 class="shelf-title">Oblíbené</h2>
+                <h2 class="shelf-title" data-i18n="favorites">Oblíbené</h2>
                 <div id="favoritesGrid" class="poster-grid"></div>
             </section>
         </section>
@@ -496,14 +533,14 @@
     </main>
 
     <!-- Přehrávač přes celou obrazovku -->
-    <div id="player" class="player" hidden role="dialog" aria-modal="true" aria-label="Přehrávač">
+    <div id="player" class="player" hidden role="dialog" aria-modal="true" aria-label="Přehrávač" data-i18n-aria="playerLabel">
         <video id="videoPlayer" playsinline crossorigin="anonymous" preload="metadata"></video>
 
         <div class="player-center" id="playerCenter" aria-live="polite"></div>
 
         <div class="player-chrome" id="playerChrome">
             <div class="player-top">
-                <button class="p-btn" id="pClose" aria-label="Zavřít přehrávač">
+                <button class="p-btn" id="pClose" aria-label="Zavřít přehrávač" data-i18n-aria="closePlayer">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
                 </button>
                 <div class="player-heading">
@@ -513,7 +550,7 @@
             </div>
 
             <div class="player-bottom">
-                <div class="seek" id="pSeek" role="slider" tabindex="0" aria-label="Pozice ve videu" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="seek" id="pSeek" role="slider" tabindex="0" aria-label="Pozice ve videu" data-i18n-aria="seekLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div class="seek-track">
                         <div class="seek-buffer" id="pBuffer"></div>
                         <div class="seek-fill" id="pFill"></div>
@@ -523,37 +560,48 @@
                 </div>
                 <div class="controls-row">
                     <button class="p-btn" id="pPlay" aria-label="Přehrát"></button>
-                    <button class="p-btn hide-narrow" id="pBack" aria-label="Zpět o 10 sekund">
+                    <button class="p-btn hide-narrow" id="pBack" aria-label="Zpět o 10 sekund" data-i18n-aria="back10">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><text x="12" y="15.5" font-size="7" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
                     </button>
-                    <button class="p-btn hide-narrow" id="pFwd" aria-label="Vpřed o 10 sekund">
+                    <button class="p-btn hide-narrow" id="pFwd" aria-label="Vpřed o 10 sekund" data-i18n-aria="fwd10">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/><text x="12" y="15.5" font-size="7" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
                     </button>
                     <div class="volume">
                         <button class="p-btn" id="pMute" aria-label="Ztlumit"></button>
-                        <input type="range" id="pVolume" min="0" max="1" step="0.05" value="1" aria-label="Hlasitost">
+                        <input type="range" id="pVolume" min="0" max="1" step="0.05" value="1" aria-label="Hlasitost" data-i18n-aria="volume">
                     </div>
                     <span class="time" id="pTime">0:00 / 0:00</span>
                     <span class="spacer"></span>
-                    <button class="p-btn text" id="pNext" hidden>Další díl
+                    <button class="p-btn text" id="pNext" hidden><span data-i18n="nextEp">Další díl</span>
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5v14l9-7zM16 5h2.5v14H16z"/></svg>
                     </button>
-                    <button class="p-btn" id="pSubs" aria-label="Titulky" aria-pressed="false" hidden>
+                    <button class="p-btn" id="pSubs" aria-label="Titulky" data-i18n-aria="subtitles" aria-pressed="false" hidden>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg>
                     </button>
                     <div class="p-menu">
-                        <button class="p-btn" id="pQuality" aria-label="Kvalita" aria-haspopup="true" aria-expanded="false" hidden>
+                        <button class="p-btn" id="pQuality" aria-label="Kvalita" data-i18n-aria="quality" aria-haspopup="true" aria-expanded="false" hidden>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
                         </button>
                         <ul class="p-menu-list" id="pQualityMenu" role="menu" hidden></ul>
                     </div>
-                    <button class="p-btn" id="pFull" aria-label="Celá obrazovka">
+                    <button class="p-btn" id="pFull" aria-label="Celá obrazovka" data-i18n-aria="fullscreen">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
                     </button>
                 </div>
             </div>
         </div>
     </div>
+
+    <dialog id="foreignNotice" class="notice" aria-labelledby="noticeTitle" lang="en">
+        <h2 id="noticeTitle">Moviora is made for Czech viewers</h2>
+        <p>This site is built for people in the Czech Republic and Slovakia, so some things may not work as you’d expect.</p>
+        <p>Movie details come from Czech databases, and a movie can still play with Czech audio even when you choose <strong>Original audio</strong>.</p>
+        <p class="notice-small">We’ve switched the site to English for you. You can change it any time with CS / EN at the top.</p>
+        <div class="notice-actions">
+            <button type="button" class="btn btn-primary" id="noticeOk">Continue in English</button>
+            <button type="button" class="btn btn-quiet" id="noticeCs" lang="cs">Přepnout do češtiny</button>
+        </div>
+    </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

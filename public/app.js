@@ -27,7 +27,7 @@ let selectedStreamIdx = 0;
 let showAllSources = false;
 let currentSeason = 1;
 let currentEpisode = 1;
-let selectedLanguage = readJSON('lang', 'cz') === 'en' ? 'en' : 'cz';
+let selectedLanguage = 'cz'; // nastaví se v init() podle uložené volby / jazyka prohlížeče
 let currentFetchController = null;
 let searchRequestId = 0;
 let detailRequestId = 0;
@@ -56,8 +56,109 @@ async function apiGet(path, options = {}) {
     const res = await fetch(`${API_URL}${path}`, options);
     let data = {};
     try { data = await res.json(); } catch { /* neplatná odpověď */ }
-    if (!res.ok && !data.error) data.error = `Server odpověděl chybou ${res.status}.`;
+    if (!res.ok && !data.error) data.error = t('serverError', { s: res.status });
     return data;
+}
+
+// =====================================================
+// Jazyk rozhraní (CS / EN)
+// =====================================================
+const I18N = {
+    cs: {
+        homeLink: 'Moviora – domů', uiLangGroup: 'Jazyk stránky',
+        searchPlaceholder: 'Hledat film nebo seriál',
+        introTitle: 'Co si dnes pustíš?',
+        introText: 'Napiš název filmu nebo seriálu do vyhledávání nahoře. Co začneš sledovat, najdeš pak tady i s místem, kde jsi skončil.',
+        continueWatching: 'Pokračovat ve sledování', favorites: 'Oblíbené',
+        resultsFor: 'Výsledky pro „{q}“', searching: 'Hledám v ČSFD a IMDb…',
+        searchFailed: 'Vyhledávání selhalo: {e}',
+        noResults: 'Nic jsme nenašli. Zkus jiný název nebo originální anglický název.',
+        serverDown: 'Server neodpovídá. Zkontroluj připojení a zkus to znovu.',
+        serverError: 'Server odpověděl chybou {s}.', untitled: 'Bez názvu',
+        loadingDetail: 'Načítám informace z ČSFD…', series: 'Seriál', rating: 'ČSFD {n} %',
+        onCsfd: 'Na ČSFD', onImdb: 'Na IMDb',
+        findingSources: 'Hledám zdroje…', unavailable: 'Nedostupné', play: 'Přehrát', resumeFrom: 'Pokračovat od {t}',
+        audioGroup: 'Jazyk zvuku', audioCz: 'CZ dabing', audioOrig: 'Původní znění',
+        inFavorites: 'V oblíbených', addFavorite: 'Přidat do oblíbených',
+        added: 'Přidáno do oblíbených', removed: 'Odebráno z oblíbených',
+        prevEp: 'Předchozí díl', nextEp: 'Další díl', season: 'Řada', episode: 'Díl', cast: 'Hrají:',
+        sources: 'Zdroje', sourcesFor: 'Zdroje pro {ep}', searchingSources: 'Hledám na Přehraj.to…',
+        sourcesFailed: 'Zdroje se nepodařilo načíst: {e}',
+        noSourcesFilm: 'Pro tento film jsme na Přehraj.to nic nenašli. Zkus přepnout na {other}.',
+        noSourcesEp: 'Pro díl {ep} jsme na Přehraj.to nic nenašli. Zkus přepnout na {other} nebo jiný díl.',
+        showAll: 'Zobrazit všech {n}', downloadSelected: 'Stáhnout vybraný', unknownFile: 'Neznámý soubor',
+        videoGone: 'Video na Přehraj.to už není dostupné.',
+        preparingDownload: 'Připravuji odkaz ke stažení…', downloadFailed: 'Stažení se nepodařilo: {e}',
+        loadingVideo: 'Načítám video…', resumingAt: 'Pokračuješ od {t}', pickOther: 'Vybrat jiný zdroj',
+        seasonEp: 'Řada {s}, díl {e}', pause: 'Pozastavit', mute: 'Ztlumit', unmute: 'Zapnout zvuk',
+        findingNext: 'Hledám další díl…', nextNotFound: 'Díl {ep} jsme na Přehraj.to nenašli.',
+        backToDetail: 'Zpět na detail', episodeEnded: 'Díl skončil.', playNext: 'Přehrát další díl',
+        cantPlay: 'Tento soubor se v prohlížeči nepodařilo přehrát. Zkus jiný zdroj, ideálně s jiným formátem nebo kvalitou.',
+        quality: 'Kvalita', qualityN: 'Kvalita {n}',
+        playerLabel: 'Přehrávač', closePlayer: 'Zavřít přehrávač', seekLabel: 'Pozice ve videu',
+        back10: 'Zpět o 10 sekund', fwd10: 'Vpřed o 10 sekund', volume: 'Hlasitost',
+        subtitles: 'Titulky', fullscreen: 'Celá obrazovka'
+    },
+    en: {
+        homeLink: 'Moviora – home', uiLangGroup: 'Site language',
+        searchPlaceholder: 'Search movies and TV shows',
+        introTitle: 'What are you watching tonight?',
+        introText: 'Type a movie or show title into the search above. Anything you start watching shows up here, along with where you left off.',
+        continueWatching: 'Continue watching', favorites: 'Favourites',
+        resultsFor: 'Results for “{q}”', searching: 'Searching ČSFD and IMDb…',
+        searchFailed: 'Search failed: {e}',
+        noResults: 'Nothing found. Try another title, or the original English title.',
+        serverDown: 'The server isn’t responding. Check your connection and try again.',
+        serverError: 'The server returned error {s}.', untitled: 'Untitled',
+        loadingDetail: 'Loading details from ČSFD…', series: 'TV series', rating: 'ČSFD {n}%',
+        onCsfd: 'View on ČSFD', onImdb: 'View on IMDb',
+        findingSources: 'Finding sources…', unavailable: 'Unavailable', play: 'Play', resumeFrom: 'Resume from {t}',
+        audioGroup: 'Audio language', audioCz: 'Czech dub', audioOrig: 'Original audio',
+        inFavorites: 'In favourites', addFavorite: 'Add to favourites',
+        added: 'Added to favourites', removed: 'Removed from favourites',
+        prevEp: 'Previous episode', nextEp: 'Next episode', season: 'Season', episode: 'Episode', cast: 'Cast:',
+        sources: 'Sources', sourcesFor: 'Sources for {ep}', searchingSources: 'Searching Přehraj.to…',
+        sourcesFailed: 'Couldn’t load sources: {e}',
+        noSourcesFilm: 'Nothing found on Přehraj.to for this movie. Try switching to {other}.',
+        noSourcesEp: 'Nothing found on Přehraj.to for episode {ep}. Try switching to {other} or another episode.',
+        showAll: 'Show all {n}', downloadSelected: 'Download selected', unknownFile: 'Unknown file',
+        videoGone: 'This video is no longer available on Přehraj.to.',
+        preparingDownload: 'Preparing the download link…', downloadFailed: 'Download failed: {e}',
+        loadingVideo: 'Loading video…', resumingAt: 'Resuming at {t}', pickOther: 'Choose another source',
+        seasonEp: 'Season {s}, episode {e}', pause: 'Pause', mute: 'Mute', unmute: 'Unmute',
+        findingNext: 'Finding the next episode…', nextNotFound: 'Episode {ep} isn’t on Přehraj.to.',
+        backToDetail: 'Back to details', episodeEnded: 'Episode finished.', playNext: 'Play next episode',
+        cantPlay: 'Your browser couldn’t play this file. Try another source, ideally in a different format or quality.',
+        quality: 'Quality', qualityN: 'Quality {n}',
+        playerLabel: 'Player', closePlayer: 'Close player', seekLabel: 'Video position',
+        back10: 'Back 10 seconds', fwd10: 'Forward 10 seconds', volume: 'Volume',
+        subtitles: 'Subtitles', fullscreen: 'Full screen'
+    }
+};
+
+// Má prohlížeč češtinu nebo slovenštinu?
+const BROWSER_CZSK = (navigator.languages || [navigator.language || ''])
+    .some(l => /^(cs|sk)\b/i.test(String(l)));
+
+// První návštěva = v úložišti zatím nic není (zjistit dřív, než cokoli uložíme)
+const FIRST_VISIT = (() => {
+    try { return localStorage.length === 0; } catch { return false; }
+})();
+
+let uiLang = (() => {
+    const saved = readJSON('ui_lang', null);
+    if (saved === 'cs' || saved === 'en') return saved;
+    return BROWSER_CZSK ? 'cs' : 'en';
+})();
+
+function t(key, vars = {}) {
+    const str = (I18N[uiLang] && I18N[uiLang][key]) ?? I18N.cs[key] ?? key;
+    return str.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
+}
+
+function filesCount(n) {
+    if (uiLang === 'en') return `${n} ${n === 1 ? 'file' : 'files'}`;
+    return `${n} ${n === 1 ? 'soubor' : n < 5 ? 'soubory' : 'souborů'}`;
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -265,22 +366,22 @@ async function search(rawQuery, push = true) {
     document.title = `${query} – Moviora`;
 
     setView('results');
-    $('resultsTitle').textContent = `Výsledky pro „${query}“`;
-    resultsDiv.innerHTML = '<p class="status">Hledám v ČSFD a IMDb…</p>';
+    $('resultsTitle').textContent = t('resultsFor', { q: query });
+    resultsDiv.innerHTML = `<p class="status">${t('searching')}</p>`;
 
     try {
         const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
         if (data.error) {
-            resultsDiv.innerHTML = `<p class="status error">Vyhledávání selhalo: ${escapeHtml(data.error)}</p>`;
+            resultsDiv.innerHTML = `<p class="status error">${t('searchFailed', { e: escapeHtml(data.error) })}</p>`;
             return;
         }
         if (!data.results || data.results.length === 0) {
-            resultsDiv.innerHTML = '<p class="status">Nic jsme nenašli. Zkus jiný název nebo originální anglický název.</p>';
+            resultsDiv.innerHTML = `<p class="status">${t('noResults')}</p>`;
             return;
         }
         renderGrid(data.results, resultsDiv, { lazyPosters: true });
     } catch {
-        resultsDiv.innerHTML = '<p class="status error">Server neodpovídá. Zkontroluj připojení a zkus to znovu.</p>';
+        resultsDiv.innerHTML = `<p class="status error">${t('serverDown')}</p>`;
     }
 }
 
@@ -291,7 +392,7 @@ function renderGrid(movies, target, { lazyPosters = false } = {}) {
     target.innerHTML = '';
 
     movies.forEach(movie => {
-        const title = movie.nazev || movie.title || 'Bez názvu';
+        const title = movie.nazev || movie.title || t('untitled');
         const year = movie.rok || movie.year || '';
         const csfdUrl = movie.csfd_url || movie.csfdLink;
         const normalized = { ...movie, title, year, csfdLink: csfdUrl };
@@ -320,16 +421,16 @@ function renderGrid(movies, target, { lazyPosters = false } = {}) {
             frame.appendChild(bar);
         }
 
-        const t = document.createElement('span');
-        t.className = 'poster-title';
-        t.textContent = title;
+        const titleEl = document.createElement('span');
+        titleEl.className = 'poster-title';
+        titleEl.textContent = title;
 
         const y = document.createElement('span');
         y.className = 'poster-year';
         const lastEp = movie.isSeries ? readJSON(`last_ep_${title}`, null) : null;
         y.textContent = lastEp ? `${year ? year + ', ' : ''}${episodeTag(lastEp.season, lastEp.episode)}` : year;
 
-        card.append(frame, t, y);
+        card.append(frame, titleEl, y);
         target.appendChild(card);
 
         if (lazyPosters && csfdUrl) {
@@ -359,7 +460,7 @@ async function openMovieDetail(movie, push = true) {
     setView('detail');
 
     $('detailBackdrop').style.backgroundImage = 'none';
-    detailContent.innerHTML = '<p class="status">Načítám informace z ČSFD…</p>';
+    detailContent.innerHTML = `<p class="status">${t('loadingDetail')}</p>`;
 
     const csfdUrl = movie.csfd_url || movie.csfdLink;
     const details = {
@@ -414,29 +515,29 @@ function renderDetail() {
 
     const facts = [];
     if (m.year && m.year !== '---') facts.push(`<li>${escapeHtml(m.year)}</li>`);
-    if (m.isSeries) facts.push('<li>Seriál</li>');
+    if (m.isSeries) facts.push(`<li>${t('series')}</li>`);
     else if (m.runtime) facts.push(`<li>${escapeHtml(m.runtime)} min</li>`);
     if (m.genres) facts.push(`<li>${escapeHtml(m.genres)}</li>`);
-    if (m.rating) facts.push(`<li class="rating">ČSFD ${escapeHtml(m.rating)} %</li>`);
+    if (m.rating) facts.push(`<li class="rating">${t('rating', { n: escapeHtml(m.rating) })}</li>`);
 
     const showOriginal = m.originalTitle && m.originalTitle.toLowerCase() !== String(m.title).toLowerCase();
     const fav = isMovieInFavorites(m.title);
 
     const episodePicker = m.isSeries ? `
         <div class="episode-picker">
-            <button class="icon-btn" id="epPrev" aria-label="Předchozí díl">${ICONS.prev}</button>
-            <label>Řada
+            <button class="icon-btn" id="epPrev" aria-label="${t('prevEp')}">${ICONS.prev}</button>
+            <label>${t('season')}
                 <select id="seasonSelect">${range(1, 30).map(i => `<option value="${i}" ${i === currentSeason ? 'selected' : ''}>${i}</option>`).join('')}</select>
             </label>
-            <label>Díl
+            <label>${t('episode')}
                 <select id="episodeSelect">${range(1, 60).map(i => `<option value="${i}" ${i === currentEpisode ? 'selected' : ''}>${i}</option>`).join('')}</select>
             </label>
-            <button class="icon-btn" id="epNext" aria-label="Další díl">${ICONS.next}</button>
+            <button class="icon-btn" id="epNext" aria-label="${t('nextEp')}">${ICONS.next}</button>
         </div>` : '';
 
     const links = [
-        csfdUrl ? `<a href="${escapeHtml(csfdUrl)}" target="_blank" rel="noopener">Na ČSFD</a>` : '',
-        imdbUrl ? `<a href="${escapeHtml(imdbUrl)}" target="_blank" rel="noopener">Na IMDb</a>` : ''
+        csfdUrl ? `<a href="${escapeHtml(csfdUrl)}" target="_blank" rel="noopener">${t('onCsfd')}</a>` : '',
+        imdbUrl ? `<a href="${escapeHtml(imdbUrl)}" target="_blank" rel="noopener">${t('onImdb')}</a>` : ''
     ].join('');
 
     detailContent.innerHTML = `
@@ -449,28 +550,28 @@ function renderDetail() {
                 ${facts.length ? `<ul class="facts">${facts.join('')}</ul>` : ''}
 
                 <div class="actions">
-                    <button class="btn btn-primary" id="playBtn" disabled>${ICONS.play}<span>Hledám zdroje…</span></button>
-                    <div class="segmented" role="group" aria-label="Jazyk">
-                        <button type="button" data-lang="cz" aria-pressed="${selectedLanguage === 'cz'}">CZ dabing</button>
-                        <button type="button" data-lang="en" aria-pressed="${selectedLanguage === 'en'}">Původní znění</button>
+                    <button class="btn btn-primary" id="playBtn" disabled>${ICONS.play}<span>${t('findingSources')}</span></button>
+                    <div class="segmented" role="group" aria-label="${t('audioGroup')}">
+                        <button type="button" data-lang="cz" aria-pressed="${selectedLanguage === 'cz'}">${t('audioCz')}</button>
+                        <button type="button" data-lang="en" aria-pressed="${selectedLanguage === 'en'}">${t('audioOrig')}</button>
                     </div>
-                    <button class="btn btn-quiet" id="favBtn" aria-pressed="${fav}">${ICONS.star}<span>${fav ? 'V oblíbených' : 'Přidat do oblíbených'}</span></button>
+                    <button class="btn btn-quiet" id="favBtn" aria-pressed="${fav}">${ICONS.star}<span>${fav ? t('inFavorites') : t('addFavorite')}</span></button>
                 </div>
 
                 ${episodePicker}
 
                 ${m.description ? `<p class="plot">${escapeHtml(m.description)}</p>` : ''}
-                ${m.actors ? `<p class="cast"><strong>Hrají:</strong> ${escapeHtml(m.actors)}</p>` : ''}
+                ${m.actors ? `<p class="cast"><strong>${t('cast')}</strong> ${escapeHtml(m.actors)}</p>` : ''}
                 ${links ? `<div class="ext-links">${links}</div>` : ''}
             </div>
         </div>
 
         <section class="shelf" aria-labelledby="sourcesTitle">
             <div class="sources-head">
-                <h2 class="shelf-title" id="sourcesTitle">Zdroje${m.isSeries ? ` pro ${episodeTag()}` : ''}</h2>
+                <h2 class="shelf-title" id="sourcesTitle">${m.isSeries ? t('sourcesFor', { ep: episodeTag() }) : t('sources')}</h2>
                 <span class="count" id="sourcesCount"></span>
             </div>
-            <div id="sourcesBody"><p class="status">Hledám na Přehraj.to…</p></div>
+            <div id="sourcesBody"><p class="status">${t('searchingSources')}</p></div>
         </section>
     `;
 
@@ -505,7 +606,7 @@ function onEpisodeOrSeasonChange() {
     currentSeason = parseInt($('seasonSelect').value, 10) || 1;
     currentEpisode = parseInt($('episodeSelect').value, 10) || 1;
     updateEpisodeButtons();
-    $('sourcesTitle').textContent = `Zdroje pro ${episodeTag()}`;
+    $('sourcesTitle').textContent = t('sourcesFor', { ep: episodeTag() });
     fetchAndRenderStreams();
 }
 
@@ -520,7 +621,7 @@ function stepEpisode(delta) {
     }
     updateEpisodeButtons();
     const title = $('sourcesTitle');
-    if (title) title.textContent = `Zdroje pro ${episodeTag()}`;
+    if (title) title.textContent = t('sourcesFor', { ep: episodeTag() });
     return fetchAndRenderStreams();
 }
 
@@ -552,7 +653,7 @@ async function fetchAndRenderStreams() {
     showAllSources = false;
     setPlayButton('loading');
     $('sourcesCount').textContent = '';
-    $('sourcesBody').innerHTML = '<p class="status">Hledám na Přehraj.to…</p>';
+    $('sourcesBody').innerHTML = `<p class="status">${t('searchingSources')}</p>`;
 
     const m = currentMovieData;
     const suffix = selectedLanguage === 'en' ? ' ENG' : '';
@@ -587,7 +688,7 @@ async function fetchAndRenderStreams() {
     } catch (e) {
         if (e.name === 'AbortError' || !isCurrent()) return;
         setPlayButton('none');
-        $('sourcesBody').innerHTML = `<p class="status error">Zdroje se nepodařilo načíst: ${escapeHtml(e.message)}</p>`;
+        $('sourcesBody').innerHTML = `<p class="status error">${t('sourcesFailed', { e: escapeHtml(e.message) })}</p>`;
     }
 }
 
@@ -595,12 +696,12 @@ function setPlayButton(state) {
     const btn = $('playBtn');
     if (!btn) return;
     const label = btn.querySelector('span');
-    if (state === 'loading') { btn.disabled = true; label.textContent = 'Hledám zdroje…'; }
-    else if (state === 'none') { btn.disabled = true; label.textContent = 'Nedostupné'; }
+    if (state === 'loading') { btn.disabled = true; label.textContent = t('findingSources'); }
+    else if (state === 'none') { btn.disabled = true; label.textContent = t('unavailable'); }
     else {
         btn.disabled = false;
         const p = getWatchProgress();
-        label.textContent = p && p.time > 30 && p.percent < 97 ? `Pokračovat od ${formatTime(p.time)}` : 'Přehrát';
+        label.textContent = p && p.time > 30 && p.percent < 97 ? t('resumeFrom', { t: formatTime(p.time) }) : t('play');
     }
 }
 
@@ -611,20 +712,21 @@ function renderSources() {
     if (activeStreams.length === 0) {
         setPlayButton('none');
         $('sourcesCount').textContent = '';
-        const what = currentMovieData.isSeries ? `díl ${episodeTag()}` : 'tento film';
-        const other = selectedLanguage === 'cz' ? 'Původní znění' : 'CZ dabing';
-        body.innerHTML = `<p class="status">Pro ${what} jsme na Přehraj.to nic nenašli. Zkus přepnout na ${other}${currentMovieData.isSeries ? ' nebo jiný díl' : ''}.</p>`;
+        const other = selectedLanguage === 'cz' ? t('audioOrig') : t('audioCz');
+        body.innerHTML = `<p class="status">${currentMovieData.isSeries
+            ? t('noSourcesEp', { ep: episodeTag(), other })
+            : t('noSourcesFilm', { other })}</p>`;
         return;
     }
 
     setPlayButton('ready');
-    $('sourcesCount').textContent = `${activeStreams.length} ${activeStreams.length === 1 ? 'soubor' : activeStreams.length < 5 ? 'soubory' : 'souborů'}`;
+    $('sourcesCount').textContent = filesCount(activeStreams.length);
 
     const wanted = selectedLanguage === 'cz' ? ['CZ', 'SK'] : ['EN', 'TIT'];
     const visible = showAllSources ? activeStreams : activeStreams.slice(0, SOURCES_VISIBLE);
 
     const items = visible.map((s, idx) => {
-        const title = s.title || s.name || 'Neznámý soubor';
+        const title = s.title || s.name || t('unknownFile');
         const q = detectQuality(title);
         const lang = detectLanguage(title);
         const gb = parseSizeToGB(s);
@@ -642,13 +744,13 @@ function renderSources() {
     }).join('');
 
     const moreBtn = !showAllSources && activeStreams.length > SOURCES_VISIBLE
-        ? `<button class="btn btn-quiet" id="moreSources">Zobrazit všech ${activeStreams.length}</button>` : '';
+        ? `<button class="btn btn-quiet" id="moreSources">${t('showAll', { n: activeStreams.length })}</button>` : '';
 
     body.innerHTML = `
         <ol class="source-list">${items}</ol>
         <div class="source-actions">
             ${moreBtn}
-            <button class="btn btn-quiet" id="downloadBtn">${ICONS.download}<span>Stáhnout vybraný</span></button>
+            <button class="btn btn-quiet" id="downloadBtn">${ICONS.download}<span>${t('downloadSelected')}</span></button>
         </div>`;
 
     body.querySelectorAll('.source').forEach(btn => {
@@ -672,14 +774,14 @@ function getSelectedStream() {
 async function getVideoData(stream) {
     const data = await apiGet(`/get-video?url=${encodeURIComponent(stream.link)}`);
     if (data.error) throw new Error(data.error);
-    if (!data.sources || data.sources.length === 0) throw new Error('Video na Přehraj.to už není dostupné.');
+    if (!data.sources || data.sources.length === 0) throw new Error(t('videoGone'));
     return data;
 }
 
 async function startDownloading() {
     const stream = getSelectedStream();
     if (!stream) return;
-    toast('Připravuji odkaz ke stažení…');
+    toast(t('preparingDownload'));
     try {
         const data = await getVideoData(stream);
         const file = data.sources[0].file || data.sources[0].src;
@@ -692,7 +794,7 @@ async function startDownloading() {
         a.click();
         a.remove();
     } catch (e) {
-        toast(`Stažení se nepodařilo: ${e.message}`);
+        toast(t('downloadFailed', { e: e.message }));
     }
 }
 
@@ -722,7 +824,7 @@ async function startStreaming(streamOverride) {
     if (!stream) return;
 
     openPlayer();
-    playerMessage('<div class="spinner"></div><p class="player-msg">Načítám video…</p>');
+    playerMessage(`<div class="spinner"></div><p class="player-msg">${t('loadingVideo')}</p>`);
 
     try {
         const data = await getVideoData(stream);
@@ -753,14 +855,14 @@ async function startStreaming(streamOverride) {
             if (videoPlayer.textTracks[0]) videoPlayer.textTracks[0].mode = tracks.length ? 'showing' : 'disabled';
             if (saved && saved.time > 5 && saved.percent < 97) {
                 videoPlayer.currentTime = saved.time;
-                toast(`Pokračuješ od ${formatTime(saved.time)}`);
+                toast(t('resumingAt', { t: formatTime(saved.time) }));
             }
         }, { once: true });
 
         videoPlayer.load();
         videoPlayer.play().catch(() => playerMessage('', false));
     } catch (e) {
-        playerMessage(`<p class="player-msg">${escapeHtml(e.message)}</p><button class="btn" id="pTryOther">Vybrat jiný zdroj</button>`, true);
+        playerMessage(`<p class="player-msg">${escapeHtml(e.message)}</p><button class="btn" id="pTryOther">${t('pickOther')}</button>`, true);
         $('pTryOther').addEventListener('click', () => closePlayer());
     }
 }
@@ -769,7 +871,7 @@ function openPlayer() {
     const m = currentMovieData;
     lastFocus = document.activeElement;
     P.title.textContent = m.title;
-    P.subtitle.textContent = m.isSeries ? `Řada ${currentSeason}, díl ${currentEpisode}` : (m.year && m.year !== '---' ? String(m.year) : '');
+    P.subtitle.textContent = m.isSeries ? t('seasonEp', { s: currentSeason, e: currentEpisode }) : (m.year && m.year !== '---' ? String(m.year) : '');
     P.next.hidden = !m.isSeries;
     P.qualityMenu.hidden = true;
 
@@ -811,7 +913,7 @@ function closePlayer(fromPopState = false) {
 function renderQualityMenu(activeIdx) {
     P.quality.hidden = currentSources.length <= 1;
     P.qualityMenu.innerHTML = currentSources.map((s, i) =>
-        `<li><button role="menuitemradio" aria-checked="${i === activeIdx}" data-idx="${i}">${escapeHtml(s.label || s.res || `Kvalita ${i + 1}`)}</button></li>`
+        `<li><button role="menuitemradio" aria-checked="${i === activeIdx}" data-idx="${i}">${escapeHtml(s.label || s.res || t('qualityN', { n: i + 1 }))}</button></li>`
     ).join('');
     P.qualityMenu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
         changeVideoQuality(+b.dataset.idx);
@@ -848,25 +950,25 @@ function skip(seconds) {
 function updatePlayButton() {
     const paused = videoPlayer.paused;
     P.play.innerHTML = paused ? ICONS.play : ICONS.pause;
-    P.play.setAttribute('aria-label', paused ? 'Přehrát' : 'Pozastavit');
+    P.play.setAttribute('aria-label', paused ? t('play') : t('pause'));
 }
 
 function updateMuteButton() {
     const muted = videoPlayer.muted || videoPlayer.volume === 0;
     P.mute.innerHTML = muted ? ICONS.mute : ICONS.vol;
-    P.mute.setAttribute('aria-label', muted ? 'Zapnout zvuk' : 'Ztlumit');
+    P.mute.setAttribute('aria-label', muted ? t('unmute') : t('mute'));
     P.volume.value = videoPlayer.muted ? 0 : videoPlayer.volume;
 }
 
 function updateTimeline() {
     const d = videoPlayer.duration;
-    const t = videoPlayer.currentTime;
-    const pct = isFinite(d) && d > 0 ? (t / d) * 100 : 0;
+    const cur = videoPlayer.currentTime;
+    const pct = isFinite(d) && d > 0 ? (cur / d) * 100 : 0;
     P.fill.style.width = `${pct}%`;
     P.head.style.left = `${pct}%`;
-    P.time.textContent = `${formatTime(t)} / ${formatTime(d)}`;
+    P.time.textContent = `${formatTime(cur)} / ${formatTime(d)}`;
     P.seek.setAttribute('aria-valuenow', pct.toFixed(0));
-    P.seek.setAttribute('aria-valuetext', formatTime(t));
+    P.seek.setAttribute('aria-valuetext', formatTime(cur));
 
     if (videoPlayer.buffered.length && isFinite(d) && d > 0) {
         P.buffer.style.width = `${(videoPlayer.buffered.end(videoPlayer.buffered.length - 1) / d) * 100}%`;
@@ -903,13 +1005,13 @@ async function playNextEpisode() {
     if (!currentMovieData?.isSeries) return;
     saveProgress(true);
     videoPlayer.pause();
-    playerMessage('<div class="spinner"></div><p class="player-msg">Hledám další díl…</p>');
+    playerMessage(`<div class="spinner"></div><p class="player-msg">${t('findingNext')}</p>`);
     await stepEpisode(1);
     if (playerEl.hidden) return;
     if (activeStreams.length) {
         startStreaming(activeStreams[0]);
     } else {
-        playerMessage(`<p class="player-msg">Díl ${episodeTag()} jsme na Přehraj.to nenašli.</p><button class="btn" id="pTryOther">Zpět na detail</button>`, true);
+        playerMessage(`<p class="player-msg">${t('nextNotFound', { ep: episodeTag() })}</p><button class="btn" id="pTryOther">${t('backToDetail')}</button>`, true);
         $('pTryOther').addEventListener('click', () => closePlayer());
     }
 }
@@ -926,13 +1028,13 @@ videoPlayer.addEventListener('volumechange', updateMuteButton);
 videoPlayer.addEventListener('ended', () => {
     saveProgress(true);
     if (currentMovieData?.isSeries) {
-        playerMessage(`<p class="player-msg">Díl skončil.</p><button class="btn btn-primary" id="pEndedNext">Přehrát další díl</button>`, true);
+        playerMessage(`<p class="player-msg">${t('episodeEnded')}</p><button class="btn btn-primary" id="pEndedNext">${t('playNext')}</button>`, true);
         $('pEndedNext').addEventListener('click', playNextEpisode);
     }
 });
 videoPlayer.addEventListener('error', () => {
     if (playerEl.hidden || !videoPlayer.getAttribute('src')) return;
-    playerMessage('<p class="player-msg">Tento soubor se v prohlížeči nepodařilo přehrát. Zkus jiný zdroj, ideálně s jiným formátem nebo kvalitou.</p><button class="btn" id="pTryOther">Vybrat jiný zdroj</button>', true);
+    playerMessage(`<p class="player-msg">${t('cantPlay')}</p><button class="btn" id="pTryOther">${t('pickOther')}</button>`, true);
     $('pTryOther').addEventListener('click', () => closePlayer());
 });
 // Na dotyku první klepnutí jen ukáže ovládání, myší klik rovnou pozastaví
@@ -1107,15 +1209,74 @@ function toggleFavoriteCurrent() {
     const btn = $('favBtn');
     if (btn) {
         btn.setAttribute('aria-pressed', String(added));
-        btn.querySelector('span').textContent = added ? 'V oblíbených' : 'Přidat do oblíbených';
+        btn.querySelector('span').textContent = added ? t('inFavorites') : t('addFavorite');
     }
-    toast(added ? 'Přidáno do oblíbených' : 'Odebráno z oblíbených', 2000);
+    toast(added ? t('added') : t('removed'), 2000);
+}
+
+// =====================================================
+// Přepínání jazyka rozhraní
+// =====================================================
+function applyStaticI18n() {
+    document.documentElement.lang = uiLang;
+    document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+    document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+    document.querySelectorAll('[data-ui-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.uiLang === uiLang)));
+    updatePlayButton();
+    updateMuteButton();
+}
+
+function setUiLang(lang) {
+    if (lang !== 'cs' && lang !== 'en') return;
+    uiLang = lang;
+    writeJSON('ui_lang', lang);
+    applyStaticI18n();
+
+    // Překreslit, co je zrovna vidět
+    if (!movieDetail.hidden && currentMovieData && $('playBtn')) {
+        const loading = $('playBtn').disabled && !activeStreams.length && $('sourcesBody')?.querySelector('.status:not(.error)');
+        renderDetail();
+        if (activeStreams.length) renderSources();
+        else if (loading) setPlayButton('loading');
+        else fetchAndRenderStreams();
+    } else if (!resultsContainer.hidden) {
+        $('resultsTitle').textContent = t('resultsFor', { q: searchInput.value });
+    }
+    if (!playerEl.hidden && currentMovieData) {
+        P.subtitle.textContent = currentMovieData.isSeries ? t('seasonEp', { s: currentSeason, e: currentEpisode }) : P.subtitle.textContent;
+    }
+}
+
+document.querySelectorAll('[data-ui-lang]').forEach(b =>
+    b.addEventListener('click', () => setUiLang(b.dataset.uiLang)));
+
+// Jednorázové upozornění pro návštěvníky bez češtiny/slovenštiny v prohlížeči
+function maybeShowForeignNotice() {
+    if (BROWSER_CZSK || !FIRST_VISIT || readJSON('notice_seen', false)) return;
+    const dlg = $('foreignNotice');
+    if (!dlg || typeof dlg.showModal !== 'function') return;
+
+    writeJSON('notice_seen', true);
+    writeJSON('ui_lang', 'en');
+    writeJSON('lang', 'en');
+
+    $('noticeOk').addEventListener('click', () => dlg.close());
+    $('noticeCs').addEventListener('click', () => { dlg.close(); setUiLang('cs'); });
+    dlg.showModal();
+    $('noticeOk').focus();
 }
 
 // =====================================================
 // Start
 // =====================================================
 (function init() {
+    // Zvuk: uložená volba, jinak u cizinců rovnou původní znění
+    const savedAudio = readJSON('lang', null);
+    selectedLanguage = savedAudio === 'en' || savedAudio === 'cz' ? savedAudio : (BROWSER_CZSK ? 'cz' : 'en');
+    applyStaticI18n();
+    maybeShowForeignNotice();
+
     const vol = readJSON('volume', null);
     if (typeof vol === 'number') videoPlayer.volume = Math.max(0, Math.min(1, vol));
     updatePlayButton();
